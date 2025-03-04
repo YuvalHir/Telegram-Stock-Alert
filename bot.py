@@ -18,6 +18,8 @@ from telegram.ext import (
     filters,
 )
 import sqlite3
+import zoneinfo
+from micha_live_summary import get_latest_summary
 
 # Create a persistent connection (adjust the path as needed)
 conn = sqlite3.connect('alerts.db', check_same_thread=False)
@@ -84,6 +86,74 @@ def seconds_until_market_open():
         tomorrow = now.date() + timedelta(days=1)
         tomorrow_open = datetime.combine(tomorrow, market_open_time, tzinfo=tz)
         return (tomorrow_open - now).total_seconds()
+    
+from telegram.helpers import escape_markdown
+import re
+
+def markdown_to_html(md_text: str) -> str:
+    """
+    Converts a simple Markdown summary (with bullet points starting with "* " and bold text marked with **)
+    into an HTML formatted string suitable for Telegram (using newlines instead of <br>).
+    
+    - Each line starting with "* " is treated as a bullet point.
+    - Bold text (i.e. **text**) is converted to <b>text</b>.
+    - Blank lines (i.e. double newlines) between bullets are preserved.
+    """
+    # Convert bold text: **text** -> <b>text</b>
+    html_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', md_text)
+
+    # Process each line: convert bullet marker "* " to a Unicode bullet "• " 
+    lines = html_text.splitlines()
+    html_lines = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith("* "):
+            content = line[2:].strip()
+            html_lines.append("• " + content)
+        else:
+            html_lines.append(line)
+    # Join the lines with newlines (two newlines between bullets for an empty line)
+    return "\n\n".join(html_lines)
+
+async def send_summary(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Retrieves the latest summary along with its published datetime,
+    converts it to HTML for nice bullet-point formatting, and sends it to users.
+    """
+    summary_text, published_dt = get_latest_summary()
+    if summary_text is None or published_dt is None:
+        print("[DEBUG] No summary available to send.")
+        return
+
+    # Convert published_dt to Israel time for display.
+    israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
+    published_local = published_dt.astimezone(israel_tz)
+    date_str = published_local.strftime('%d/%m/%Y')
+    time_str = published_local.strftime('%H:%M')
+
+    # Convert the summary from Markdown to HTML.
+    html_summary = markdown_to_html(summary_text)
+
+    # Construct the HTML message.
+    message = (
+        f'הנה סיכום הלייב של מיכה שהתקיים בתאריך {date_str} והסתיים בשעה {time_str}:\n\n'
+        f'{html_summary}'
+    )
+
+    # Retrieve user IDs from the alerts database.
+    alerts = load_alerts()
+    user_ids = alerts.keys()
+
+    # Send the HTML formatted summary message to each user.
+    for user_id in user_ids:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=message,
+            parse_mode="HTML"
+        )
+        print(f"[DEBUG] Sent summary to user {user_id}")
+
+
 
 # Functions to compute alerts
 def calculate_sma(ticker, period=20):
@@ -1334,6 +1404,15 @@ def main():
 
     # JobQueue to check alerts every 15 seconds (adjust interval as needed)
     application.job_queue.run_repeating(check_alerts, interval=15, first=10)
+    # Define Israel's timezone.
+    israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
+    application.job_queue.run_once(send_summary, when=0)
+
+    # Schedule the job to run daily at 17:30 local time.
+    application.job_queue.run_daily(send_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
+    # Schedule the job to run daily at 23:30 local time.
+    application.job_queue.run_daily(send_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
+
 
 
     # Start the Bot
