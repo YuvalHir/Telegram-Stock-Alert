@@ -1,11 +1,5 @@
-custom_line_chart.png
-test_candles.png
-test.py
-.vscode/launch.json
-alerts.db
-test2.py
-bot.py
-.gitignore
-micha_live_summary.py
-__pycache__/micha_live_summary.cpython-312.pyc
-.gitignore
+/devutils
+/.vscode
+*.gitignore
+*.env
+*.db
