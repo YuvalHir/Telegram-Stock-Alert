@@ -27,8 +27,9 @@ SECOND_LIVE_END = datetime.time(hour=23, minute=0)
 # Define session ranges in Israel local time
 AFTERNOON_SESSION_START = datetime.time(hour=16, minute=0)
 AFTERNOON_SESSION_END   = datetime.time(hour=18, minute=0)
-EVENING_SESSION_START   = datetime.time(hour=22, minute=0)
-EVENING_SESSION_END     = datetime.time(hour=23, minute=59)
+EVENING_SESSION_START = datetime.time(22, 0, 0)
+EVENING_SESSION_END = datetime.time(0, 30, 0)
+
 
 # Create transcripts directory if it does not exist.
 if not os.path.exists(TRANSCRIPTS_DIR):
@@ -45,7 +46,10 @@ def get_target_date_range():
     Determines the target date range based on the current time in Israel.
     If current time is after the first live's finish time, use today's date.
     Otherwise, use yesterday's date.
-    Returns ISO8601 strings for start and end of the target day (UTC).
+    Returns ISO8601 strings for publishedAfter and publishedBefore in UTC.
+    
+    If the evening session spans midnight (i.e. EVENING_SESSION_START > EVENING_SESSION_END),
+    the publishedBefore is extended to the next day at EVENING_SESSION_END.
     """
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     now_israel = datetime.datetime.now(israel_tz)
@@ -58,10 +62,16 @@ def get_target_date_range():
         target_date = now_israel.date() - datetime.timedelta(days=1)
         print("[DEBUG] Current time is before FIRST_LIVE_END, using yesterday's date.")
 
+    # publishedAfter is the start of the target date (local midnight)
     start_local = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=israel_tz)
-    end_local = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=israel_tz)
+
+    # Determine publishedBefore: if evening session spans midnight, use target_date + 1 with EVENING_SESSION_END.
+    if EVENING_SESSION_START > EVENING_SESSION_END:
+        end_local = datetime.datetime.combine(target_date + datetime.timedelta(days=1), EVENING_SESSION_END, tzinfo=israel_tz)
+    else:
+        end_local = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=israel_tz)
     
-    # Convert the local times to UTC
+    # Convert the local times to UTC.
     start_utc = start_local.astimezone(datetime.timezone.utc)
     end_utc = end_local.astimezone(datetime.timezone.utc)
     
@@ -69,60 +79,127 @@ def get_target_date_range():
     published_before = end_utc.isoformat().replace('+00:00', 'Z')
     
     print(f"[DEBUG] Target date: {target_date}")
+    print(f"[DEBUG] Local start time: {start_local.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[DEBUG] Local end time: {end_local.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"[DEBUG] UTC range: {published_after} to {published_before}")
     
     return published_after, published_before
 
+
 def get_live_video_items():
     """
     Retrieves videos from Micha's channel published on the target day.
-    Converts each video's published time from UTC to Israel time for proper filtering.
+    Uses the Videos API to get extended details (including liveStreamingDetails)
+    and uses the live's start time rather than the snippet's published time.
     Returns a list of video items that match either the afternoon or evening session.
     """
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
     published_after, published_before = get_target_date_range()
 
-    request = youtube.search().list(
+    # First, perform a search to get video IDs.
+    search_request = youtube.search().list(
         part="id,snippet",
         channelId=CHANNEL_ID,
         publishedAfter=published_after,
         publishedBefore=published_before,
         order="date",
         type="video",
-        eventType="completed", #Make sure we only get lives and not regular videos
-        maxResults=10  # Increase if needed
+        eventType="completed",  # Only get lives, not regular videos.
+        maxResults=10
     )
-    response = request.execute()
+    search_response = search_request.execute()
 
-    if not response.get("items"):
+    if not search_response.get("items"):
         print("[DEBUG] No videos found for the target date.")
         return []
 
     print("[DEBUG] Retrieved video items:")
-    for item in response["items"]:
+    for item in search_response["items"]:
         print(f" - Video ID: {item['id']['videoId']}, Published at (UTC): {item['snippet']['publishedAt']}")
+
+    # Extract video IDs from the search results.
+    video_ids = [item["id"]["videoId"] for item in search_response["items"]]
+
+    # Now, call the Videos API to get detailed info including liveStreamingDetails.
+    videos_request = youtube.videos().list(
+        part="snippet,liveStreamingDetails",
+        id=",".join(video_ids)
+    )
+    videos_response = videos_request.execute()
+    detailed_items = videos_response.get("items", [])
+
+    # Print the session boundaries for debugging.
+    print("[DEBUG] Afternoon session start:", AFTERNOON_SESSION_START, "end:", AFTERNOON_SESSION_END)
+    print("[DEBUG] Evening session start:", EVENING_SESSION_START, "end:", EVENING_SESSION_END)
 
     afternoon_videos = []
     evening_videos = []
-    for item in response["items"]:
-        published_at = item["snippet"]["publishedAt"]
-        published_dt_utc = datetime.datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-        published_dt_israel = published_dt_utc.astimezone(israel_tz)
-        local_time_str = published_dt_israel.strftime('%Y-%m-%d %H:%M:%S')
-        print(f"[DEBUG] Video {item['id']['videoId']} local published time: {local_time_str}")
+    for item in detailed_items:
+        # Get live streaming details.
+        live_details = item.get("liveStreamingDetails", {})
+        # Use actualStartTime if available, otherwise scheduledStartTime, otherwise fall back to snippet.publishedAt.
+        print("act",live_details.get("actualStartTime"),"sced", live_details.get("scheduledStartTime"), "pub", item["snippet"]["publishedAt"])
+        start_time_str = (live_details.get("actualStartTime") or
+                          live_details.get("scheduledStartTime") or
+                          item["snippet"]["publishedAt"])
 
-        # Filter based on Israel local time
-        if AFTERNOON_SESSION_START <= published_dt_israel.time() < AFTERNOON_SESSION_END:
-            print(f"[DEBUG] Adding video {item['id']['videoId']} to afternoon session (local time: {published_dt_israel.time()}).")
+        try:
+            published_dt_utc = datetime.datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        except Exception as e:
+            print(f"[DEBUG] Error parsing time {start_time_str}: {e}")
+            continue
+
+        published_dt_israel = published_dt_utc.astimezone(israel_tz)
+        video_time = published_dt_israel.time()
+        local_time_str = published_dt_israel.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"[DEBUG] Video {item['id']} local start time: {local_time_str} (time: {video_time})")
+
+        # Filter based on Israel local time.
+        if AFTERNOON_SESSION_START <= video_time < AFTERNOON_SESSION_END:
+            print(f"[DEBUG] Video {item['id']} falls within the afternoon session.")
             afternoon_videos.append(item)
-        elif EVENING_SESSION_START <= published_dt_israel.time() <= EVENING_SESSION_END:
-            print(f"[DEBUG] Adding video {item['id']['videoId']} to evening session (local time: {published_dt_israel.time()}).")
-            evening_videos.append(item)
+        else:
+            # Check if evening session crosses midnight.
+            if EVENING_SESSION_START <= EVENING_SESSION_END:
+                # Evening session does not cross midnight.
+                if EVENING_SESSION_START <= video_time <= EVENING_SESSION_END:
+                    print(f"[DEBUG] Video {item['id']} falls within the evening session (non-midnight crossing).")
+                    evening_videos.append(item)
+                else:
+                    print(f"[DEBUG] Video {item['id']} does NOT fall within the evening session (non-midnight crossing).")
+            else:
+                # Evening session spans midnight: valid if time >= EVENING_SESSION_START or <= EVENING_SESSION_END.
+                if video_time >= EVENING_SESSION_START or video_time <= EVENING_SESSION_END:
+                    print(f"[DEBUG] Video {item['id']} falls within the evening session (midnight crossing).")
+                    evening_videos.append(item)
+                else:
+                    print(f"[DEBUG] Video {item['id']} does NOT fall within the evening session (midnight crossing).")
 
     combined_videos = afternoon_videos + evening_videos
     print(f"[DEBUG] Total videos after filtering: {len(combined_videos)}")
     return combined_videos
+
+
+
+def get_latest_live_video_tuples(limit: int = 4):
+    """
+    Retrieves the latest live video items from Micha's channel and returns a list of tuples
+    containing the video ID and title for up to `limit` videos.
+    """
+    video_items = get_live_video_items()  # Existing function call.
+    
+    # Assuming the items are ordered by publish date descending, select the first `limit` items.
+    selected_items = video_items[:limit]
+    
+    video_tuples = []
+    for item in selected_items:
+        video_id = item["id"]
+        video_title = item["snippet"]["title"]
+        video_tuples.append((video_id, video_title))
+    
+    return video_tuples
+
 
 def get_video_transcript(video_id):
     """
@@ -223,33 +300,24 @@ def process_video(video_id, transcript_text):
     )
 
     summary_text = response.text
-    print("[DEBUG] Generated Summary:")
-    print(summary_text)
+    #printing summaries disabled
+    #print("[DEBUG] Generated Summary:")
+    #print(summary_text)
     save_summary(video_id, summary_text)
     return summary_text
 
-
-def get_latest_summary():
-    video_items = get_live_video_items()
-    if not video_items:
-        print("[DEBUG] No matching live videos found for the target date.")
-        return
-
-    # Sort videos by publishedAt (descending order) and take the latest one
-    latest_video = sorted(
-        video_items, 
-        key=lambda x: x["snippet"]["publishedAt"], 
-        reverse=True
-    )[0]
-
-    video_id = latest_video["id"]["videoId"]
-    published_at = latest_video["snippet"]["publishedAt"]
-    published_dt = datetime.datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-    print(f"[DEBUG] Processing latest video ID: {video_id}, published at (UTC): {published_at}")
-
-    # If transcript already processed, read it from the file(for not calling the api while we already got the transcript); otherwise, retrieve and save it.
+def get_transcript_for_video(video_id: str) -> str:
+    """
+    Retrieves the transcript for the given video ID.
+    If the transcript is already processed, it reads it from the saved file.
+    Otherwise, it downloads, saves, and returns the transcript.
+    
+    Returns:
+        transcript_text (str): The transcript text, or an empty string if not available.
+    """
+    transcript_path = os.path.join(TRANSCRIPTS_DIR, f"{video_id}.txt")
+    
     if transcript_already_processed(video_id):
-        transcript_path = os.path.join(TRANSCRIPTS_DIR, f"{video_id}.txt")
         with open(transcript_path, "r", encoding="utf-8") as file:
             transcript_text = file.read()
         print(f"[DEBUG] Transcript for video {video_id} already processed. Using saved transcript.")
@@ -257,12 +325,83 @@ def get_latest_summary():
         transcript_text = get_video_transcript(video_id)
         if not transcript_text:
             print(f"[DEBUG] Could not retrieve transcript for video {video_id}.")
-            return
+            return ""
         save_transcript(video_id, transcript_text)
+    
+    return transcript_text
 
-    # Process the transcript: get a saved summary if available or generate a new one.
-    summary_text = process_video(video_id, transcript_text)
-    print(f"[DEBUG] Summary for video {video_id}:\n{summary_text}\n")
-    return summary_text, published_dt
+
+def get_latest_summary(video_id=None):
+    """
+    If a video_id is provided, retrieve and process that video.
+    Otherwise, process the latest live video from the channel.
+    Returns a tuple of (summary_text, published_dt).
+    """
+    if video_id:
+        print(f"[DEBUG] Processing specific video ID: {video_id}")
+        # Check if transcript is already saved
+        transcript_text = get_transcript_for_video(video_id)
+        
+        # Process transcript to generate summary
+        summary_text = process_video(video_id, transcript_text)
+        
+        # Optionally, retrieve the published date for the specific video.
+        youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+        request = youtube.videos().list(part="snippet", id=video_id)
+        response = request.execute()
+        published_dt = None
+        if response.get("items"):
+            published_at = response["items"][0]["snippet"]["publishedAt"]
+            published_dt = datetime.datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        print(f"[DEBUG] Summary for video {video_id}:\n{summary_text}\n")
+        return summary_text, published_dt
+    
+    else:
+        # Default behavior: process the latest live video
+        video_items = get_live_video_items()
+        if not video_items:
+            print("[DEBUG] No matching live videos found for the target date.")
+            return
+
+        # Sort videos by publishedAt (descending) and pick the latest one
+        latest_video = sorted(
+            video_items, 
+            key=lambda x: x["snippet"]["publishedAt"], 
+            reverse=True
+        )[0]
+
+        video_id = latest_video["id"]
+        published_at = latest_video["snippet"]["publishedAt"]
+        published_dt = datetime.datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        print(f"[DEBUG] Processing latest video ID: {video_id}, published at (UTC): {published_at}")
+
+        transcript_text = get_transcript_for_video(video_id)
+        
+        summary_text = process_video(video_id, transcript_text)
+        #print(f"[DEBUG] Summary for video {video_id}:\n{summary_text}\n")
+        return summary_text, published_dt
+
+def gemini_generate_content(prompt: str, system_instruction: str) -> str:
+    """
+    Generates content using Gemini with the given prompt and system instruction.
+    This function wraps your Gemini API call.
+    """
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        config=types.GenerateContentConfig(system_instruction=system_instruction),
+        contents=prompt
+    )
+    return response.text
+
+
+
 if __name__ == "__main__":
-    get_latest_summary()
+    import sys
+    # If a video ID is provided as a command line argument, process that video
+    if len(sys.argv) > 1:
+        video_id_arg = sys.argv[1]
+        get_latest_summary(video_id=video_id_arg)
+    else:
+        # Otherwise, process the latest live video
+        get_latest_summary()
+

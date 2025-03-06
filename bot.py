@@ -16,10 +16,11 @@ from telegram.ext import (
     CallbackQueryHandler,
     MessageHandler,
     filters,
+    CallbackContext,
 )
 import sqlite3
 import zoneinfo
-from micha_live_summary import get_latest_summary
+from micha_live_summary import get_latest_summary, get_latest_live_video_tuples, gemini_generate_content, get_transcript_for_video
 
 # Create a persistent connection (adjust the path as needed)
 conn = sqlite3.connect('alerts.db', check_same_thread=False)
@@ -94,7 +95,7 @@ def markdown_to_html(md_text: str) -> str:
     """
     Converts a simple Markdown summary (with bullet points starting with "* " and bold text marked with **)
     into an HTML formatted string suitable for Telegram (using newlines instead of <br>).
-    
+
     - Each line starting with "* " is treated as a bullet point.
     - Bold text (i.e. **text**) is converted to <b>text</b>.
     - Blank lines (i.e. double newlines) between bullets are preserved.
@@ -115,15 +116,15 @@ def markdown_to_html(md_text: str) -> str:
     # Join the lines with newlines (two newlines between bullets for an empty line)
     return "\n\n".join(html_lines)
 
-async def send_summary(context: ContextTypes.DEFAULT_TYPE):
+def prepere_summary(videoid=None):
     """
-    Retrieves the latest summary along with its published datetime,
-    converts it to HTML for nice bullet-point formatting, and sends it to users.
+    Retrieves the latest summary and its published datetime, converts the datetime to Israel time,
+    processes the summary by converting it to HTML with right-to-left formatting, and returns the
+    complete HTML message.
     """
-    summary_text, published_dt = get_latest_summary()
+    summary_text, published_dt = get_latest_summary(videoid)
     if summary_text is None or published_dt is None:
-        print("[DEBUG] No summary available to send.")
-        return
+        return None
 
     # Convert published_dt to Israel time for display.
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
@@ -134,11 +135,31 @@ async def send_summary(context: ContextTypes.DEFAULT_TYPE):
     # Convert the summary from Markdown to HTML.
     html_summary = markdown_to_html(summary_text)
 
-    # Construct the HTML message.
+    # Use RIGHT-TO-LEFT MARK (U+200F) at the beginning of each non-empty line.
+    processed_lines = []
+    for line in html_summary.splitlines():
+        if line.strip():
+            processed_lines.append("\u200F" + line)
+        else:
+            processed_lines.append(line)
+    html_summary_rtl = "\n".join(processed_lines)
+
+    # Construct and return the HTML message.
     message = (
         f'הנה סיכום הלייב של מיכה שהתקיים בתאריך {date_str} והסתיים בשעה {time_str}:\n\n'
-        f'{html_summary}'
+        f'{html_summary_rtl}'
     )
+    return message
+
+
+async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Retrieves the summary message using get_summary() and sends it to all users.
+    """
+    message = prepere_summary()
+    if message is None:
+        print("[DEBUG] No summary available to send.")
+        return
 
     # Retrieve user IDs from the alerts database.
     alerts = load_alerts()
@@ -152,8 +173,6 @@ async def send_summary(context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         print(f"[DEBUG] Sent summary to user {user_id}")
-
-
 
 # Functions to compute alerts
 def calculate_sma(ticker, period=20):
@@ -629,6 +648,7 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("➕ New Alert", callback_data="new_alert")],
         [InlineKeyboardButton("🔔 List Alerts", callback_data="list_alerts")],
         [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
+        [InlineKeyboardButton("📑 Advanced", callback_data="advanced")],
         [InlineKeyboardButton("⚙️ Settings", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -643,6 +663,232 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
         )
+
+async def advanced_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("Latest Live Summary", callback_data='latest_live_summary')],
+        [InlineKeyboardButton("Custom Live Summary", callback_data='custom_live_summary')],
+        [InlineKeyboardButton("Ask an AI", callback_data='ai_interrogation')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="Please choose one of the following options:", reply_markup=reply_markup)
+
+async def adv_btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    choice = query.data
+    print("[DEBUG] adv_btn_handler received callback data:", choice)
+    
+    if choice == 'advanced':
+        await advanced_menu(update, context)
+    elif choice == 'latest_live_summary':
+        summary = prepere_summary()  # Call prepere_summary with no arguments.
+        await query.edit_message_text(text=summary, parse_mode="HTML")
+    elif choice == 'custom_live_summary':
+        await query.edit_message_text(
+            text="Please provide the YouTube video ID or link for the custom live summary."
+        )
+        context.user_data['awaiting_video_id_for_summary'] = True
+    elif choice == 'ai_interrogation':
+        await start_ai_chat(update, context)
+    else:
+        await query.edit_message_text(text="Unknown option selected.")
+
+
+async def video_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    # Edit the message text and remove the inline keyboard.
+    try:
+        await query.edit_message_text(
+            text="Please wait while we retrieve the video details...",
+            reply_markup=None
+        )
+    except Exception as e:
+        print("[DEBUG] Failed to edit message:", e)
+    
+    # Extract the video ID from the callback data.
+    data = query.data
+    if data.startswith("video_select:"):
+        video_id = data.split("video_select:")[1]
+        # Continue with initiating the Gemini chat (or any subsequent action)
+        await initiate_gemini_chat(update, context, video_id)
+    elif data == "manual_video":
+        # Prompt the user to provide a video link or ID manually.
+        try:
+            await query.edit_message_text("Please send me the YouTube video ID or link.")
+        except Exception as e:
+            print("[DEBUG] Failed to edit message for manual input:", e)
+        context.user_data['awaiting_video_id_for_gemini'] = True
+    else:
+        # If the callback data does not match, update the message accordingly.
+        await query.edit_message_text("Unknown video selection.")
+
+
+
+
+async def start_ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Retrieve the latest live video tuples.
+    video_tuples = get_latest_live_video_tuples(limit=4)
+    
+    # Build the inline keyboard.
+    keyboard = build_video_selection_keyboard(video_tuples)
+    
+    # Use the message from update.message if available; otherwise, fall back to callback_query.message.
+    msg = update.message or update.callback_query.message
+    await msg.reply_text(
+        "Which video would you like to discuss?",
+        reply_markup=keyboard
+    )
+
+async def end_chat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    # Clear the Gemini session context.
+    context.user_data.pop('gemini_transcript', None)
+    context.user_data.pop('gemini_system_instruction', None)
+    context.user_data.pop('conversation_history', None)
+    await query.edit_message_text("Gemini chat ended.")
+
+
+async def initiate_gemini_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, video_id: str):
+    """
+    Initiates a Gemini chat session using the transcript of the selected video.
+    Stores transcript and system instruction in user_data for context.
+    """
+    # Retrieve transcript for the selected video.
+    transcript_text = get_transcript_for_video(video_id)
+    if not transcript_text:
+        await update.effective_message.reply_text("Transcript not available for this video.")
+        return
+
+    # Store transcript and system instruction in user_data for later queries.
+    context.user_data['gemini_transcript'] = transcript_text
+    sys_instruct = (f"You are a stock market expert. Use the transcript to answer any questions "
+                    "about the video and feel free to check your information online when needed."
+                    "please initiate the conversation with a short question like, you can ask me"
+                    "anything about the video how can i help you. here is the transctipt{transcript_text}"
+                    "you should answer breifly, provide information, style your response with emojis to look nice,"
+                    "the user is reading this replay on whatsapp.")
+    context.user_data['gemini_system_instruction'] = sys_instruct
+
+    # Use the entire transcript as the initial prompt.
+    prompt = "Hey, i would like to ask you a few questions about the transcript."
+
+    # Generate the initial response from Gemini.
+    initial_response = gemini_generate_content(prompt, sys_instruct)
+    await update.effective_message.reply_text(initial_response, parse_mode="HTML")
+
+async def unified_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    effective_msg = update.effective_message
+    user_text = effective_msg.text.strip()
+
+    if context.user_data.get('awaiting_video_id_for_summary'):
+        # Process the manually provided video link/ID for summary generation.
+        video_id = extract_video_id(user_text)
+        summary = prepere_summary(video_id)
+        await effective_msg.reply_text(summary, parse_mode="HTML")
+        context.user_data.pop('awaiting_video_id_for_summary', None)
+
+    elif context.user_data.get('awaiting_video_id_for_gemini'):
+        # Process the manually provided video link/ID to start a Gemini chat.
+        video_id = extract_video_id(user_text)
+        context.user_data.pop('awaiting_video_id_for_gemini', None)
+        await initiate_gemini_chat(update, context, video_id)
+
+    elif context.user_data.get('gemini_transcript') and context.user_data.get('gemini_system_instruction'):
+        # Process this as a Gemini chat query.
+        transcript_text = context.user_data['gemini_transcript']
+        sys_instruct = context.user_data['gemini_system_instruction']
+
+        # Initialize conversation history if not present.
+        if 'conversation_history' not in context.user_data:
+            context.user_data['conversation_history'] = transcript_text
+
+        # Append user's query to conversation history.
+        conversation_history = context.user_data['conversation_history']
+        conversation_history += f"\nUser: {user_text}\n"
+        full_prompt = conversation_history
+
+        # Generate Gemini response.
+        response = gemini_generate_content(full_prompt, sys_instruct)
+        assistant_reply = response  # adjust if you need to use response.text
+
+        # Append Gemini's reply to conversation history.
+        conversation_history += f"Assistant: {assistant_reply}\n"
+        context.user_data['conversation_history'] = conversation_history
+
+        # Convert assistant reply from Markdown to HTML.
+        html_assistant_reply = markdown_to_html(assistant_reply)
+
+        # Build inline keyboard to end the chat.
+        end_chat_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("End Chat", callback_data="end_chat")]
+        ])
+
+        # Ensure RTL formatting for each non-empty line.
+        processed_lines = []
+        for line in html_assistant_reply.splitlines():
+            if line.strip():
+                processed_lines.append("\u200F" + line)
+            else:
+                processed_lines.append(line)
+        html_summary_rtl = "\n".join(processed_lines)
+
+        await effective_msg.reply_text(html_summary_rtl, parse_mode="HTML", reply_markup=end_chat_keyboard)
+
+    else:
+        await effective_msg.reply_text("I'm not sure how to handle that message right now.")
+
+
+def build_video_selection_keyboard(video_tuples):
+    buttons = []
+    for video_id, video_title in video_tuples:
+        callback_data = f"video_select:{video_id}"
+        buttons.append([InlineKeyboardButton(video_title, callback_data=callback_data)])
+    
+    buttons.append([InlineKeyboardButton("Manual Input", callback_data="manual_video")])
+    return InlineKeyboardMarkup(buttons)
+
+
+
+async def video_id_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('awaiting_video_id_for_summary'):
+        video_input = update.message.text.strip()
+        video_id = extract_video_id(video_input)
+        summary = prepere_summary(video_id)
+        await update.message.reply_text(summary, parse_mode="HTML")
+        context.user_data['awaiting_video_id_for_summary'] = False  # Reset the flag.
+
+from urllib.parse import urlparse, parse_qs
+
+def extract_video_id(video_input: str) -> str:
+    """
+    Extracts the YouTube video ID from a URL or returns the input if it's already a video ID.
+    """
+    parsed = urlparse(video_input)
+
+    # If the input has a scheme (e.g., "http", "https"), attempt URL parsing.
+    if parsed.scheme in ("http", "https"):
+        # Handle standard YouTube watch URLs.
+        query_params = parse_qs(parsed.query)
+        if 'v' in query_params:
+            return query_params['v'][0]
+        
+        # Handle YouTube live URLs.
+        if "/live/" in parsed.path:
+            # Extract the portion after '/live/'.
+            return parsed.path.split("/live/")[-1]
+    
+    # Fallback: Try to extract using a regular expression.
+    # This pattern looks for "v=" or "/live/" followed by a group of word characters or hyphens.
+    match = re.search(r'(?:v=|/live/)([\w-]{11})', video_input)
+    if match:
+        return match.group(1)
+
+    # If no URL patterns are matched, assume the input is already the video ID.
+    return video_input
 
 
 async def handle_list_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1391,6 +1637,12 @@ def main():
 
     # Callback Query Handlers for Main Menu and Inline Buttons
     application.add_handler(CallbackQueryHandler(handle_new_alert, pattern="^new_alert$"))
+    application.add_handler(CallbackQueryHandler(advanced_menu, pattern="^advanced$"))
+    application.add_handler(CallbackQueryHandler(end_chat_callback, pattern=r'^end_chat$'))
+    application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r'^video_select:'))
+    application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r'^(video_select:|manual_video)$'))
+    application.add_handler(CallbackQueryHandler(adv_btn_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
     application.add_handler(CallbackQueryHandler(handle_main_menu, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(handle_list_alerts, pattern="^list_alerts$"))
     application.add_handler(CallbackQueryHandler(handle_help, pattern="^help$"))
@@ -1399,6 +1651,11 @@ def main():
     application.add_handler(CallbackQueryHandler(alert_response_handler, pattern="^(remove_|keep_)"))
     application.add_handler(CallbackQueryHandler(cancel_alert, pattern="^cancel_alert$"))
     application.add_handler(CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$"))
+        # Handler for starting the AI chat and showing video options.
+    application.add_handler(CommandHandler("start_ai_chat", start_ai_chat))
+    # Handler for inline button callbacks from video selection.
+    # Handler for text messages for Gemini chat follow-up queries.
+    
 
 
 
@@ -1406,12 +1663,12 @@ def main():
     application.job_queue.run_repeating(check_alerts, interval=15, first=10)
     # Define Israel's timezone.
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    application.job_queue.run_once(send_summary, when=0)
+    #application.job_queue.run_once(distribute_summary, when=0) #send summery on startup
 
     # Schedule the job to run daily at 17:30 local time.
-    application.job_queue.run_daily(send_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
     # Schedule the job to run daily at 23:30 local time.
-    application.job_queue.run_daily(send_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
 
 
 
