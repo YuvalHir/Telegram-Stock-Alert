@@ -21,6 +21,7 @@ from telegram.ext import (
 import sqlite3
 import zoneinfo
 from micha_live_summary import get_latest_summary, get_latest_live_video_tuples, gemini_generate_content, get_transcript_for_video
+from dailyrecap import recap
 
 # Create a persistent connection (adjust the path as needed)
 conn = sqlite3.connect('alerts.db', check_same_thread=False)
@@ -150,6 +151,59 @@ def prepere_summary(videoid=None):
         f'{html_summary_rtl}'
     )
     return message
+
+async def prepere_x_summary():
+    summary_text = await recap()
+    if summary_text == None:
+        return None
+    # Convert the summary from Markdown to HTML.
+    html_summary = markdown_to_html(summary_text)
+
+    # Use RIGHT-TO-LEFT MARK (U+200F) at the beginning of each non-empty line.
+    processed_lines = []
+    for line in html_summary.splitlines():
+        if line.strip():
+            processed_lines.append("\u200F" + line)
+        else:
+            processed_lines.append(line)
+    html_summary_rtl = "\n".join(processed_lines)
+
+    # Construct and return the HTML message.
+    utc = timezone('Etc/UTC')
+    now_utc = datetime.now(utc)
+    target_time = now_utc.replace(hour=14, minute=30, second=0, microsecond=0)
+    if now_utc < target_time:
+        message = (
+            f'המסחר תכף נפתח, הנה החדשות שחייבים לדעת :\n\n'
+            f'{html_summary_rtl}'
+        )
+    else:
+        message = (
+            f'המסחר להיום הסתיים, הנה החדשות שהיו במהלך היום :\n\n'
+            f'{html_summary_rtl}'
+        )
+    return message
+
+async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE):
+    message = await prepere_x_summary()
+    print("Message")
+    print(message)
+    if message is None:
+        print("[DEBUG] No summary available to send.")
+        return
+
+    # Retrieve user IDs from the alerts database.
+    alerts = load_alerts()
+    user_ids = alerts.keys()
+
+    # Send the HTML formatted summary message to each user.
+    for user_id in user_ids:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=message,
+            parse_mode="HTML"
+        )
+        print(f"[DEBUG] Sent summary to user {user_id}")
 
 
 async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
@@ -1732,7 +1786,10 @@ def main():
     
     # ---------------- Job Queue ----------------
     application.job_queue.run_repeating(check_alerts, interval=60, first=10)
+
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=16, minute=15, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=23, minute=15, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
 
