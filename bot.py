@@ -268,110 +268,127 @@ def load_alerts():
     return alerts
 
 
-# Async function to check alerts every 15 minutes (only during market hours)
+import yfinance as yf
+import asyncio
+
 async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     tz = timezone('America/New_York')
     now = datetime.now(tz)
+
     # If the market is closed, schedule the next check at market open and exit.
-    print(market_is_open())
     if not market_is_open():
         wait_time = seconds_until_market_open()
-        logger.info("Market is closed. Next check in %.0f seconds.", wait_time)
+        logger.info(f"Market is closed. Next check in {wait_time:.0f} seconds.")
         context.job_queue.run_once(check_alerts, wait_time, data=context)
         return
 
+    # 1️⃣ Collect all unique tickers from alerts
+    tickers = {alert["ticker"] for alerts in user_alerts.values() for alert in alerts}
+
+    if not tickers:
+        logger.info("No active alerts to check.")
+        return
+
+    # 2️⃣ Download price data for all tickers at once (1-day period, 1-minute interval)
+    logger.info(f"Downloading data for {len(tickers)} tickers: {tickers}")
+    try:
+        data = yf.download(list(tickers), period="1d", interval="1m", group_by="ticker", threads=True)
+    except Exception as e:
+        logger.error(f"Error fetching stock data: {e}")
+        return
+
+    # 3️⃣ Process alerts based on the downloaded data
     for user_id, alerts in list(user_alerts.items()):
         for alert in alerts.copy():
-            ticker = alert.get('ticker')
-            stock = yf.Ticker(ticker)
-            data = stock.history(period='1d', interval='1m')
-            if data.empty:
+            ticker = alert["ticker"]
+
+            # Get the last available price for this ticker
+            try:
+                current_price = data[ticker]["Close"].iloc[-1]
+            except KeyError:
+                logger.warning(f"No data available for {ticker}, skipping.")
                 continue
-            current_price = data['Close'].iloc[-1]
-            # SMA alert check
-            if alert['type'] == 'sma':
-                sma_value = calculate_sma(ticker, period=alert.get('period', 20))
+
+            # ---- Check SMA Alert ----
+            if alert["type"] == "sma":
+                sma_value = calculate_sma(ticker, period=alert.get("period", 20))
                 if sma_value is None:
                     continue
-                condition = False
-                if alert['direction'] == 'above' and current_price > sma_value:
-                    condition = True
-                elif alert['direction'] == 'below' and current_price < sma_value:
-                    condition = True
-
-                if condition:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"📈 *SMA Alert Triggered!*\n\n"
-                            f"*{ticker}*\n"
-                            f"Current Price: *{current_price:.2f}*\n"
-                            f"SMA({alert.get('period',20)}): *{sma_value:.2f}*\n"
-                            f"Direction: *{alert['direction']}*"
-                        ),
-                        parse_mode="Markdown"
-                    )
+                if (alert["direction"] == "above" and current_price > sma_value) or \
+                   (alert["direction"] == "below" and current_price < sma_value):
+                    await send_sma_alert(context, user_id, alert, current_price, sma_value)
                     alerts.remove(alert)
-                    await send_alert_graph(context, user_id, alert, current_price)
-
-
-            # Price alert check
-            elif alert['type'] == 'price':
-                target_price = alert['target_price']
-                condition = False
-                if alert['direction'] == 'above' and current_price > target_price:
-                    condition = True
-                elif alert['direction'] == 'below' and current_price < target_price:
-                    condition = True
-
-                if condition:
-                    keyboard = [
-                        [InlineKeyboardButton("✅ Remove Alert", callback_data=f"remove_{alert['id']}")],
-                        [InlineKeyboardButton("❌ Keep Alert", callback_data=f"keep_{alert['id']}")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"💰 *Price Alert Triggered!*\n\n"
-                            f"*{ticker}*\n"
-                            f"Current Price: *{current_price:.2f}*\n"
-                            f"Target Price: *{target_price:.2f}*\n"
-                            f"Direction: *{alert['direction']}*\n\n"
-                            "Do you want to remove this alert?"
-                        ),
-                        parse_mode="Markdown",
-                        reply_markup=reply_markup
-                    )
-                    # Do not remove the alert here; wait for the user's callback response.
+            
+            # ---- Check Price Alert ----
+            elif alert["type"] == "price":
+                target_price = alert["target_price"]
+                if (alert["direction"] == "above" and current_price > target_price) or \
+                   (alert["direction"] == "below" and current_price < target_price):
+                    await send_price_alert(context, user_id, alert, current_price)
                     alerts.remove(alert)
-                    await send_alert_graph(context, user_id, alert, current_price)
 
-
-            # Custom line alert check
-            elif alert['type'] == 'custom_line':
-                date1 = alert['date1']
-                price1 = alert['price1']
-                date2 = alert['date2']
-                price2 = alert['price2']
-                projected_price = calculate_custom_line_trading_days(date1, price1, date2, price2)
-                threshold = alert.get('threshold', 0.5)
+            # ---- Check Custom Line Alert ----
+            elif alert["type"] == "custom_line":
+                projected_price = calculate_custom_line_trading_days(
+                    alert["date1"], alert["price1"], alert["date2"], alert["price2"]
+                )
+                threshold = alert.get("threshold", 0.5)
                 if abs(current_price - projected_price) <= threshold:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"📊 *Custom Line Alert Triggered!*\n\n"
-                            f"*{ticker}*\n"
-                            f"Current Price: *{current_price:.2f}*\n"
-                            f"Projected Price: *{projected_price:.2f}*\n"
-                            f"(Threshold: ±{threshold})"
-                        ),
-                        parse_mode="Markdown"
-                    )
+                    await send_custom_line_alert(context, user_id, alert, current_price, projected_price)
                     alerts.remove(alert)
-                    await send_alert_graph(context, user_id, alert, current_price)
 
-    logger.info("Price check complete, next check in 15 secounds")
+
+async def send_sma_alert(context, user_id, alert, current_price, sma_value):
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            f"📈 *SMA Alert Triggered!*\n\n"
+            f"*{alert['ticker']}*\n"
+            f"Current Price: *{current_price:.2f}*\n"
+            f"SMA({alert.get('period', 20)}): *{sma_value:.2f}*\n"
+            f"Direction: *{alert['direction']}*"
+        ),
+        parse_mode="Markdown"
+    )
+    await send_alert_graph(context, user_id, alert, current_price)
+
+
+async def send_price_alert(context, user_id, alert, current_price):
+    keyboard = [
+        [InlineKeyboardButton("✅ Remove Alert", callback_data=f"remove_{alert['id']}")],
+        [InlineKeyboardButton("❌ Keep Alert", callback_data=f"keep_{alert['id']}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            f"💰 *Price Alert Triggered!*\n\n"
+            f"*{alert['ticker']}*\n"
+            f"Current Price: *{current_price:.2f}*\n"
+            f"Target Price: *{alert['target_price']:.2f}*\n"
+            f"Direction: *{alert['direction']}*\n\n"
+            "Do you want to remove this alert?"
+        ),
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+    await send_alert_graph(context, user_id, alert, current_price)
+
+
+async def send_custom_line_alert(context, user_id, alert, current_price, projected_price):
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            f"📊 *Custom Line Alert Triggered!*\n\n"
+            f"*{alert['ticker']}*\n"
+            f"Current Price: *{current_price:.2f}*\n"
+            f"Projected Price: *{projected_price:.2f}*\n"
+            f"(Threshold: ±{alert.get('threshold', 0.5)})"
+        ),
+        parse_mode="Markdown"
+    )
+    await send_alert_graph(context, user_id, alert, current_price)
 
 async def send_alert_graph(context: ContextTypes.DEFAULT_TYPE, chat_id: int, alert: dict, current_price: float):
     ticker = alert['ticker']
@@ -821,6 +838,9 @@ async def initiate_gemini_chat(update: Update, context: ContextTypes.DEFAULT_TYP
         "If no online search was performed, do not claim that you searched online. "
         "Avoid prompting the user with follow-up questions; instead, seamlessly integrate any additional data into your answer. "
         "The audience consists of retail investors who are comfortable with stock market jargon. "
+        "You have access to web search. Use it to answer questions that require up-to-date or factual information."
+        "When answering questions, prioritize using web search to ground your responses in reliable sources."
+        "Extract the relevant information from the search results to form your answer."
         "Transcript: {transcript_text}"
     )
 
@@ -1711,7 +1731,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
     
     # ---------------- Job Queue ----------------
-    application.job_queue.run_repeating(check_alerts, interval=30, first=10)
+    application.job_queue.run_repeating(check_alerts, interval=60, first=10)
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     application.job_queue.run_daily(distribute_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))

@@ -26,12 +26,12 @@ google_search_tool = Tool(
 
 
 # Define threshold times (in local Israel time) for the lives to be considered finished.
-FIRST_LIVE_END = datetime.time(hour=17, minute=30)
+FIRST_LIVE_END = datetime.time(hour=17, minute=00)
 SECOND_LIVE_END = datetime.time(hour=23, minute=0)
 
 # Define session ranges in Israel local time
-AFTERNOON_SESSION_START = datetime.time(hour=16, minute=0)
-AFTERNOON_SESSION_END   = datetime.time(hour=18, minute=0)
+AFTERNOON_SESSION_START = datetime.time(hour=15, minute=0)
+AFTERNOON_SESSION_END   = datetime.time(hour=17, minute=30)
 EVENING_SESSION_START = datetime.time(22, 0, 0)
 EVENING_SESSION_END = datetime.time(0, 30, 0)
 
@@ -392,7 +392,7 @@ def gemini_generate_content(prompt: str, system_instruction: str) -> str:
     This function wraps your Gemini API call.
     """
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.0-flash-thinking-exp-1219",
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             tools=[google_search_tool],
