@@ -265,7 +265,7 @@ async def recap():
     else:
         return None
 
-asyncio.run(recap())
+#asyncio.run(recap())
 
 ##################################################################################
 # Prompt for writing a post for twitter - works with gemini-2.0-flash-thinking-exp
