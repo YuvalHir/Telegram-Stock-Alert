@@ -765,16 +765,20 @@ async def initiate_gemini_chat(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Store transcript and system instruction in user_data for later queries.
     context.user_data['gemini_transcript'] = transcript_text
-    sys_instruct = (f"You are a stock market expert. Use the transcript to answer any questions "
-                    "about the video and feel free to check your information online when needed."
-                    "please initiate the conversation with a short question like, you can ask me"
-                    "anything about the video how can i help you. here is the transctipt{transcript_text}"
-                    "you should answer breifly, provide information, style your response with emojis to look nice,"
-                    "the user is reading this replay on whatsapp.")
+    sys_instruct = (
+        "You are a knowledgeable stock market expert with a friendly tone, using emojis to enhance your responses. "
+        "Your answers should be concise (between 400 and 800 characters), focusing on the most critical points while providing extra context when needed. "
+        "Use the transcript provided below as your primary source of information. "
+        "If no online search was performed, do not claim that you searched online. "
+        "Avoid prompting the user with follow-up questions; instead, seamlessly integrate any additional data into your answer. "
+        "The audience consists of retail investors who are comfortable with stock market jargon. "
+        "Transcript: {transcript_text}"
+    )
+
     context.user_data['gemini_system_instruction'] = sys_instruct
 
     # Use the entire transcript as the initial prompt.
-    prompt = "Hey, i would like to ask you a few questions about the transcript."
+    prompt = "Hey, I'd like to ask you a few questions about the transcript."
 
     # Generate the initial response from Gemini.
     initial_response = gemini_generate_content(prompt, sys_instruct)

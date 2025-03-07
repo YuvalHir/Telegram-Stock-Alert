@@ -4,6 +4,7 @@ from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from google import genai
 from google.genai import types
+from google.genai.types import Tool, GoogleSearch
 import zoneinfo  # Python 3.9+ for timezone support
 from dotenv import load_dotenv
 load_dotenv(dotenv_path='varribles.env')  # Loads variables from the .env file
@@ -18,6 +19,10 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 CHANNEL_ID = "UCSxjNbPriyBh9RNl_QNSAtw"
 TRANSCRIPTS_DIR = "transcripts"
 SUMMARIES_DIR = "summaries"
+
+google_search_tool = Tool(
+    google_search = GoogleSearch()
+)
 
 
 # Define threshold times (in local Israel time) for the lives to be considered finished.
@@ -388,9 +393,24 @@ def gemini_generate_content(prompt: str, system_instruction: str) -> str:
     """
     response = client.models.generate_content(
         model="gemini-2.0-flash",
-        config=types.GenerateContentConfig(system_instruction=system_instruction),
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[google_search_tool],
+            response_modalities=["TEXT"],
+            ),
         contents=prompt
     )
+    print("Grounding Information:")
+    candidate = response.candidates[0]
+    # Check if grounding metadata and search entry point are available
+    if (candidate.grounding_metadata is not None and 
+        candidate.grounding_metadata.search_entry_point is not None):
+        grounding_info = candidate.grounding_metadata.search_entry_point.rendered_content
+        print("Grounding Information:")
+        print(grounding_info)
+    else:
+        print("No grounding information available for this response.")
+
     return response.text
 
 
