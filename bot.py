@@ -372,8 +372,6 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
                     await send_alert_graph(context, user_id, alert, current_price)
 
     logger.info("Price check complete, next check in 15 secounds")
-    # Schedule the next check in 15 seconds
-    context.job_queue.run_once(check_alerts, 15, data=context)
 
 async def send_alert_graph(context: ContextTypes.DEFAULT_TYPE, chat_id: int, alert: dict, current_price: float):
     ticker = alert['ticker']
@@ -511,7 +509,7 @@ def add_custom_line_trace(fig, alert, current_price, threshold):
     if abs(current_price - projected_price_today) <= threshold:
         fig.add_trace(go.Scatter(
             x=[today_ts],
-            y=[current_price],
+            y=[projected_price_today],
             mode='markers',
             marker=dict(color='red', size=12, symbol='x'),
             name='Cross'
@@ -564,11 +562,11 @@ async def add_sma_trace(fig, ticker, alert, current_price, threshold, start_date
         print("DEBUG: last_sma is None or NaN; skipping marker")
         return True
     else:
-        if abs(current_price - last_sma) <= threshold:
+        #if abs(current_price - last_sma) <= threshold:
             last_date = df_extended.loc[start_date:].index[-1]
             fig.add_trace(go.Scatter(
                 x=[last_date],
-                y=[current_price],
+                y=[last_sma],
                 mode='markers+text',
                 marker=dict(color='red', size=16, symbol='star-diamond', line=dict(color='black', width=2)),
                 text=["Target"],
@@ -640,21 +638,68 @@ async def handle_new_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="/newalert"
     )
 
+import yfinance as yf
+import pandas as pd
+
+def get_multiple_market_info(symbols):
+    """
+    Downloads market data for tickers.
+    - Uses `1m` interval for assets like Bitcoin (BTC-USD)
+    - Uses `1d` interval for indices like S&P 500, Nasdaq, and VIX
+    """
+    info = {}
+    # Download daily (1-day) data for stock indices
+    if symbols:
+        try:
+            data_1d = yf.download(" ".join(symbols), period="5d", interval="1d", group_by="ticker", threads=True)
+            for symbol in symbols:
+                df = data_1d.get(symbol)
+                if df is not None and not df.empty:
+                    current_price = df['Close'].iloc[-1]
+                    open_price = df['Open'].iloc[-1]  # Get today's open
+                    change = current_price - open_price
+                    percent_change = (change / open_price) * 100 if open_price else 0
+                    arrow = "📈" if change >= 0 else "📉"
+                    info[symbol] = f"{current_price:.2f} {arrow} {abs(percent_change):.2f}%"
+                else:
+                    info[symbol] = "N/A"
+        except Exception as e:
+            print("Error fetching 1d data:", e)
+    
+    return info
+
+
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     chat_id = update.message.chat_id if update.message else update.callback_query.message.chat_id
 
+    # List of tickers for the market info.
+    symbols = ["^GSPC", "^IXIC", "^VIX", "BTC-USD"]  # Indices only have daily data
+
+    market_info = get_multiple_market_info(symbols)
+
+
+    # Build the inline keyboard for navigation
     keyboard = [
-        [InlineKeyboardButton("➕ New Alert", callback_data="new_alert")],
-        [InlineKeyboardButton("🔔 List Alerts", callback_data="list_alerts")],
-        [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
-        [InlineKeyboardButton("📑 Advanced", callback_data="advanced")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="settings")]
+        [InlineKeyboardButton("➕ New Alert ", callback_data="new_alert")],
+        [InlineKeyboardButton("📋 List Alerts ", callback_data="list_alerts")],
+        [InlineKeyboardButton("❓ Help ", callback_data="help")],
+        [InlineKeyboardButton("🚀 Advanced ", callback_data="advanced")],
+        [InlineKeyboardButton("🔧 Settings ", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "🏠 *Main Menu*\n\nPlease choose an option:"
+    
+    text = (
+        "🏠 *Main Menu*\n\n"
+        "*Market Updates Today:*\n"
+        f"📈 S&P 500: {market_info.get('^GSPC', 'N/A')}\n"
+        f"📊 Nasdaq: {market_info.get('^IXIC', 'N/A')}\n"
+        f"😮 VIX: {market_info.get('^VIX', 'N/A')}\n"
+        f"₿ Bitcoin: {market_info.get('BTC-USD', 'N/A')}\n\n"
+        "Welcome to *Stock Alert Bot*! \n\n"
+        "Select one of the options below to proceed:\n\n"
+    )
 
-    # Use the appropriate method based on how the update was triggered.
     if update.callback_query:
         await update.callback_query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
@@ -664,13 +709,15 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, parse_mode="Markdown", reply_markup=reply_markup
         )
 
+
 async def advanced_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     keyboard = [
-        [InlineKeyboardButton("Latest Live Summary", callback_data='latest_live_summary')],
-        [InlineKeyboardButton("Custom Live Summary", callback_data='custom_live_summary')],
-        [InlineKeyboardButton("Ask an AI", callback_data='ai_interrogation')]
+        [InlineKeyboardButton("📰 Latest Live Summary", callback_data='latest_live_summary')],
+        [InlineKeyboardButton("📹 Custom Live Summary", callback_data='custom_live_summary')],
+        [InlineKeyboardButton("🤖 Ask an AI", callback_data='ai_interrogation')],
+        [InlineKeyboardButton("🏠 Return", callback_data='main_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text="Please choose one of the following options:", reply_markup=reply_markup)
@@ -692,6 +739,8 @@ async def adv_btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data['awaiting_video_id_for_summary'] = True
     elif choice == 'ai_interrogation':
+        # Delete the previous menu message so it doesn't clutter the chat.
+        await query.delete_message()
         await start_ai_chat(update, context)
     else:
         await query.edit_message_text(text="Unknown option selected.")
@@ -853,6 +902,7 @@ def build_video_selection_keyboard(video_tuples):
         buttons.append([InlineKeyboardButton(video_title, callback_data=callback_data)])
     
     buttons.append([InlineKeyboardButton("Manual Input", callback_data="manual_video")])
+    buttons.append([InlineKeyboardButton("🏠 Return", callback_data='main_menu')])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -875,6 +925,11 @@ def extract_video_id(video_input: str) -> str:
 
     # If the input has a scheme (e.g., "http", "https"), attempt URL parsing.
     if parsed.scheme in ("http", "https"):
+        # Check for short URL format (youtu.be)
+        if parsed.netloc in ("youtu.be", "www.youtu.be"):
+            # The video ID is in the path (after the leading '/')
+            return parsed.path.lstrip('/')
+        
         # Handle standard YouTube watch URLs.
         query_params = parse_qs(parsed.query)
         if 'v' in query_params:
@@ -1130,17 +1185,6 @@ async def remove_alert_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # Re-display updated list of alerts by calling list_alerts:
     await list_alerts(update, context)
 
-
-async def cancel_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🚫 Alert creation cancelled. Use /menu to return to the main menu.")
-    return ConversationHandler.END
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚫 Alert creation cancelled. Use /menu to return to the main menu.")
-    return ConversationHandler.END
-
 # ----- Conversation for New Alert -----
 async def newalert_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Determine the chat_id whether this update comes from a message or a callback query.
@@ -1149,7 +1193,7 @@ async def newalert_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📈 SMA Alert", callback_data="sma")],
         [InlineKeyboardButton("💰 Price Alert", callback_data="price")],
         [InlineKeyboardButton("📊 Custom Line Alert", callback_data="custom_line")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_alert")]
+        [InlineKeyboardButton("❌ Cancel", callback_data='main_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(
@@ -1598,17 +1642,17 @@ def main():
     print("API Token:", API_TOKEN)
     application = ApplicationBuilder().token(API_TOKEN).build()
 
-    # Command Handlers
+    # ---------------- Command Handlers ----------------
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("listalerts", list_alerts))
     application.add_handler(CommandHandler("menu", handle_main_menu))
-
-
-    # Conversation Handler for New Alerts
+    application.add_handler(CommandHandler("start_ai_chat", start_ai_chat))
+    
+    # ---------------- Conversation Handler for New Alerts ----------------
     conv_handler = ConversationHandler(
         entry_points=[
-        CommandHandler("newalert", newalert_entry),
-        CallbackQueryHandler(newalert_entry, pattern="^new_alert$")
+            CommandHandler("newalert", newalert_entry),
+            CallbackQueryHandler(newalert_entry, pattern="^new_alert$")
         ],
         states={
             GET_DATE1: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_date1)],
@@ -1627,56 +1671,52 @@ def main():
             ],
             ALERT_TYPE: [CallbackQueryHandler(alert_type_choice)],
             LIST_ALERTS: [
-                # Your existing handlers for alert listing...
                 CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$")
             ],
             GET_TICKER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_ticker)],
             GET_PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_period)],
             GET_DIRECTION: [CallbackQueryHandler(get_direction)],
-            GET_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)],
+            GET_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)]
         },
-        fallbacks=[CommandHandler("cancel", cancel)]
+        fallbacks=[CommandHandler("cancel", handle_main_menu)]
     )
     application.add_handler(conv_handler)
 
-    # Callback Query Handlers for Main Menu and Inline Buttons
-    application.add_handler(CallbackQueryHandler(handle_new_alert, pattern="^new_alert$"))
-    application.add_handler(CallbackQueryHandler(advanced_menu, pattern="^advanced$"))
-    application.add_handler(CallbackQueryHandler(end_chat_callback, pattern=r'^end_chat$'))
-    application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r'^video_select:'))
-    application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r'^(video_select:|manual_video)$'))
-    application.add_handler(CallbackQueryHandler(adv_btn_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
+    # ---------------- Specific Callback Query Handlers ----------------
+    # Handlers for main menu and other specific functions.
     application.add_handler(CallbackQueryHandler(handle_main_menu, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(handle_list_alerts, pattern="^list_alerts$"))
     application.add_handler(CallbackQueryHandler(handle_help, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(handle_settings, pattern="^settings$"))
     application.add_handler(CallbackQueryHandler(remove_alert_callback, pattern="^remove_"))
     application.add_handler(CallbackQueryHandler(alert_response_handler, pattern="^(remove_|keep_)"))
-    application.add_handler(CallbackQueryHandler(cancel_alert, pattern="^cancel_alert$"))
     application.add_handler(CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$"))
-        # Handler for starting the AI chat and showing video options.
-    application.add_handler(CommandHandler("start_ai_chat", start_ai_chat))
-    # Handler for inline button callbacks from video selection.
-    # Handler for text messages for Gemini chat follow-up queries.
+    application.add_handler(CallbackQueryHandler(newalert_entry, pattern="^new_alert$"))
+
+    # ---------------- Advanced and Video Selection Handlers ----------------
+    # Advanced menu: note the pattern filter restricts it to expected callback data.
+    application.add_handler(CallbackQueryHandler(
+        video_selection_callback, 
+        pattern=r'^(video_select:.*|manual_video)$'
+    ))
+    application.add_handler(CallbackQueryHandler(advanced_menu, pattern="^advanced$"))
+    application.add_handler(CallbackQueryHandler(
+        adv_btn_handler, 
+        pattern="^(advanced|latest_live_summary|custom_live_summary|ai_interrogation)$"
+    ))
+    application.add_handler(CallbackQueryHandler(end_chat_callback, pattern=r'^end_chat$'))
+
     
-
-
-
-    # JobQueue to check alerts every 15 seconds (adjust interval as needed)
-    application.job_queue.run_repeating(check_alerts, interval=15, first=10)
-    # Define Israel's timezone.
+    # ---------------- Generic Message Handler ----------------
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
+    
+    # ---------------- Job Queue ----------------
+    application.job_queue.run_repeating(check_alerts, interval=30, first=10)
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    #application.job_queue.run_once(distribute_summary, when=0) #send summery on startup
-
-    # Schedule the job to run daily at 17:30 local time.
     application.job_queue.run_daily(distribute_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
-    # Schedule the job to run daily at 23:30 local time.
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
 
-
-
-    # Start the Bot
+    # ---------------- Start the Bot ----------------
     application.run_polling()
 
 

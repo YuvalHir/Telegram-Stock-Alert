@@ -211,7 +211,7 @@ def get_video_transcript(video_id):
     Retrieve the transcript text for the given video using the YouTube Transcript API.
     """
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['iw']) #Adjust language if needed
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['iw', 'en']) #Adjust language if needed
         transcript_text = " ".join(segment["text"] for segment in transcript_list)
         return transcript_text
     except (TranscriptsDisabled, NoTranscriptFound) as e:
