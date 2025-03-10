@@ -115,6 +115,7 @@ async def getreadyfortoday(info,before):
             * הסיכום יהיה מקצועי אך קליל ונוח לקריאה, כמו הודעת WhatsApp.
             * השתמש בשפה תמציתית וברורה, והימנע מפירוט יתר.
             * התמקד בחדשות המשמעותיות ביותר, וציין בקצרה או דלג על מידע שולי.
+            * הסיכום צריך להיות בעברית, אך מומלץ לרשום שמות חברות או שמות של אנשים באנגלית אם זה ישפר את ההבנה
         * **הגבלות:**
             * הסיכום לא יעלה על שלוש פסקאות.
             * התמקד בחדשות חשובות ומשמעותיות, חדשות שוליות שאינן משמעותיות ניתן לדלג עליהן או לכתוב עליהן בקצרה.
@@ -143,6 +144,7 @@ async def getreadyfortoday(info,before):
             * הסיכום יהיה מקצועי אך קליל ונוח לקריאה, כמו הודעת WhatsApp.
             * השתמש בשפה תמציתית וברורה, והימנע מפירוט יתר.
             * השתמש באמוג'ים שיעזרו לבטא את מה שאתה חושב וגם יסגנונו יפה את ההודעה
+            * הסיכום צריך להיות בעברית, אך מומלץ לרשום שמות חברות או שמות של אנשים באנגלית אם זה ישפר את ההבנה
             * התמקד בחדשות המשמעותיות ביותר שהתקבלו במהלך יום המסחר, וציין בקצרה או דלג על מידע שולי.
         * **הגבלות:**
             * הסיכום לא יעלה על שלוש פסקאות.
@@ -214,7 +216,6 @@ def get_saved_summary(name):
     Checks if a summary for the given video ID exists.
     If yes, returns the saved summary text; otherwise, returns None.
     """
-    print("searching for:", name)
     summary_path = os.path.join(SUMMARIES_DIR, f"{name}.txt")
     if os.path.exists(summary_path):
         with open(summary_path, "r", encoding="utf-8") as file:
@@ -229,8 +230,9 @@ async def recap():
     now_utc = datetime.now(timezone.utc)
     target_time = now_utc.replace(hour=14, minute=30, second=0, microsecond=0)
     before = now_utc < target_time
-    if get_saved_summary(before*"PRE"+(not before) * "AFT"+today):
-        print(get_saved_summary(before*"PRE"+(not before) * "AFT"+today))
+    print("searching for:", before*"PRE"+(not before)*"AFT"+today)
+    if get_saved_summary(before*"PRE"+(not before)*"AFT"+today):
+        #print(get_saved_summary(before*"PRE"+(not before) * "AFT"+today))
         return get_saved_summary(before*"PRE"+(not before) * "AFT"+today)
     await xclient.login(
         auth_info_1=USERNAME,

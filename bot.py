@@ -184,27 +184,45 @@ async def prepere_x_summary():
         )
     return message
 
-async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE):
-    message = await prepere_x_summary()
-    print("Message")
-    print(message)
-    if message is None:
-        print("[DEBUG] No summary available to send.")
-        return
+async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE, max_retries=3, retry_delay=60):
+    """
+    Distributes the X summary with retry logic.
 
-    # Retrieve user IDs from the alerts database.
-    alerts = load_alerts()
-    user_ids = alerts.keys()
+    Args:
+        context: The Telegram bot context.
+        max_retries: The maximum number of retry attempts.
+        retry_delay: The delay (in seconds) between retries.
+    """
+    for attempt in range(max_retries):
+        try:
+            message = await prepere_x_summary()
+            print("Message")
+            print(message)
+            if message is None:
+                print("[DEBUG] No summary available to send.")
+                return
 
-    # Send the HTML formatted summary message to each user.
-    for user_id in user_ids:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=message,
-            parse_mode="HTML"
-        )
-        print(f"[DEBUG] Sent summary to user {user_id}")
+            alerts = load_alerts()
+            user_ids = alerts.keys()
 
+            for user_id in user_ids:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode="HTML"
+                )
+                print(f"[DEBUG] Sent summary to user {user_id}")
+
+            # If successful, break out of the retry loop
+            return
+
+        except Exception as e:
+            print(f"[ERROR] Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:  # Don't wait after the last attempt
+                print(f"[DEBUG] Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+            else:
+              print("[ERROR] Max retries reached. Summary distribution failed.")
 
 async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -1788,10 +1806,10 @@ def main():
     application.job_queue.run_repeating(check_alerts, interval=60, first=10)
 
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=16, minute=15, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=23, minute=15, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_summary, time=time(hour=17, minute=30, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=30, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_summary, time=time(hour=16, minute=30, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=00, tzinfo=israel_tz))
 
     # ---------------- Start the Bot ----------------
     application.run_polling()

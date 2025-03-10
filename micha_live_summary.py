@@ -26,14 +26,14 @@ google_search_tool = Tool(
 
 
 # Define threshold times (in local Israel time) for the lives to be considered finished.
-FIRST_LIVE_END = datetime.time(hour=17, minute=00)
+FIRST_LIVE_END = datetime.time(hour=16, minute=30)
 SECOND_LIVE_END = datetime.time(hour=23, minute=0)
 
 # Define session ranges in Israel local time
-AFTERNOON_SESSION_START = datetime.time(hour=15, minute=0)
-AFTERNOON_SESSION_END   = datetime.time(hour=17, minute=30)
-EVENING_SESSION_START = datetime.time(22, 0, 0)
-EVENING_SESSION_END = datetime.time(0, 30, 0)
+AFTERNOON_SESSION_START = datetime.time(hour=14, minute=30)
+AFTERNOON_SESSION_END   = datetime.time(hour=16, minute=29)
+EVENING_SESSION_START = datetime.time(21, 20, 0)
+EVENING_SESSION_END = datetime.time(23, 29, 0)
 
 
 # Create transcripts directory if it does not exist.
