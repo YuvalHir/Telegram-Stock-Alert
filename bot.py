@@ -1843,7 +1843,7 @@ def main():
     
     # ---------------- Job Queue ----------------
     global checkalertsjob
-    checkalertsjob = application.job_queue.run_repeating(check_alerts, interval=10, first=10)
+    checkalertsjob = application.job_queue.run_repeating(check_alerts, interval=60, first=10)
     #application.job_queue.run_repeating(print_active_jobs, interval=10, first=10)
 
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
