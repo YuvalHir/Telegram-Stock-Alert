@@ -23,6 +23,10 @@ import zoneinfo
 from micha_live_summary import get_latest_summary, get_latest_live_video_tuples, gemini_generate_content, get_transcript_for_video
 from dailyrecap import recap
 
+
+checkalertsjob = None
+
+
 # Create a persistent connection (adjust the path as needed)
 conn = sqlite3.connect('alerts.db', check_same_thread=False)
 cursor = conn.cursor()
@@ -49,6 +53,7 @@ conn.commit()
 # Enable logging
 logging.getLogger("yfinance").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -62,6 +67,7 @@ user_alerts = {}
 ALERT_TYPE, GET_TICKER, GET_PERIOD, GET_DIRECTION, GET_PRICE, GET_DATE1, GET_PRICE1_OVERRIDE, GET_DATE2, GET_PRICE2_OVERRIDE, GET_THRESHOLD, LIST_ALERTS = range(11)
 
 # Helper: Check if market is open (NYSE hours example: 9:30am-4:00pm EST)
+
 def market_is_open():
     tz = timezone('America/New_York')
     now = datetime.now(tz)
@@ -88,7 +94,8 @@ def seconds_until_market_open():
         tomorrow = now.date() + timedelta(days=1)
         tomorrow_open = datetime.combine(tomorrow, market_open_time, tzinfo=tz)
         return (tomorrow_open - now).total_seconds()
-    
+
+
 from telegram.helpers import escape_markdown
 import re
 
@@ -344,6 +351,7 @@ import yfinance as yf
 import asyncio
 
 async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
+    global checkalertsjob
     tz = timezone('America/New_York')
     now = datetime.now(tz)
 
@@ -351,7 +359,11 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     if not market_is_open():
         wait_time = seconds_until_market_open()
         logger.info(f"Market is closed. Next check in {wait_time:.0f} seconds.")
-        context.job_queue.run_once(check_alerts, wait_time, data=context)
+        if checkalertsjob:
+            checkalertsjob.remove()
+            print("Job removed successfully")
+        context.job_queue.run_once(run_check_alerts, wait_time)
+        #context.job_queue.run_once(check_alerts, wait_time, data=context)
         return
 
     # 1️⃣ Collect all unique tickers from alerts
@@ -408,6 +420,14 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
                 if abs(current_price - projected_price) <= threshold:
                     await send_custom_line_alert(context, user_id, alert, current_price, projected_price)
                     alerts.remove(alert)
+
+
+async def run_check_alerts(context: ContextTypes.DEFAULT_TYPE):
+    #await check_alerts(context)
+
+    # Once the market opens, re-schedule the job to run every 60 seconds again
+    logger.info("Market is now open. Rescheduling job to run every 60 seconds.")
+    context.job_queue.run_repeating(check_alerts, interval=60, first=10)
 
 
 async def send_sma_alert(context, user_id, alert, current_price, sma_value):
@@ -1724,6 +1744,25 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def print_active_jobs(context: ContextTypes.DEFAULT_TYPE):
+    # Access the job_queue and get the list of jobs
+    jobs = context.application.job_queue.jobs()
+    logger.info("Currently active jobs:")
+    for job in jobs:
+        # Extracting job details
+        job_id = job.id
+        job_name = job.name
+        next_run_time = job.next_run_time
+        trigger = job.trigger
+
+        # Formatting and logging the job information
+        job_info = (
+            f"\nJob ID      : {job_id}\n"
+            f"Name        : {job_name}\n"
+            f"Next run    : {next_run_time}\n"
+            f"Trigger     : {trigger}\n"
+        )
+        logger.info(job_info)
 
 # -----------------------------------------
 def main():
@@ -1803,7 +1842,9 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
     
     # ---------------- Job Queue ----------------
-    application.job_queue.run_repeating(check_alerts, interval=60, first=10)
+    global checkalertsjob
+    checkalertsjob = application.job_queue.run_repeating(check_alerts, interval=10, first=10)
+    #application.job_queue.run_repeating(print_active_jobs, interval=10, first=10)
 
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
