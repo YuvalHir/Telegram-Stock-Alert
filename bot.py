@@ -1847,8 +1847,9 @@ def main():
     #application.job_queue.run_repeating(print_active_jobs, interval=10, first=10)
 
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
+    #Temporerly disabling the X summary distrubution, seems to get blocked from all my X accounts.
+    #application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
+    #application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=16, minute=30, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=00, tzinfo=israel_tz))
 
