@@ -64,6 +64,7 @@ async def gettweets(username,before):
     for tweet in user_tweets:
         cur_tweets.append(tuple([tweet.text, tweet.created_at]))
     if before:
+        print("Gathering tweets from yesterday untill before market open")
         while not (is_before_market_close(user_tweets[len(user_tweets)-1].created_at)):
             user_tweets = await user_tweets.next()
             for tweet in user_tweets:
@@ -75,6 +76,7 @@ async def gettweets(username,before):
             else:
                 break
     else:
+        print("Gathering tweets after market open untill now")
         while not (is_after_market_open(user_tweets[len(user_tweets)-1].created_at)):
             user_tweets = await user_tweets.next()
             for tweet in user_tweets:
@@ -240,7 +242,8 @@ async def recap():
         password=PASSWORD,
         cookies_file='cookies.json'
     )
-    marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
+    #marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
+    marketexperts = ['StockMKTNewz']#Checking issue related to scaping X.
     if market_open:
         if before:
             print("Before market open breif")
@@ -257,7 +260,7 @@ async def recap():
             print("After market close breif.")
             info =[]
             for user in marketexperts:
-                info.extend(await gettweets(user,True))
+                info.extend(await gettweets(user,False))
             print("Gathering tweets for today completed, here is what i got")
             print(info)
             response = await getreadyfortoday(info, False)
