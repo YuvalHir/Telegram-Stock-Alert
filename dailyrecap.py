@@ -83,7 +83,7 @@ async def gettweets(username,before):
                 cur_tweets.append(tuple([tweet.text, tweet.created_at]))
         for i in range(len(cur_tweets)-1,0,-1):
             date = cur_tweets[i][1]
-            if is_after_market_open(date):
+            if not is_after_market_open(date):
                 del cur_tweets[i]
             else:
                 break
@@ -241,6 +241,7 @@ async def recap():
         auth_info_2=EMAIL,
         password=PASSWORD,
         cookies_file='cookies.json'
+        enable_ui_metrics=True
     )
     #marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
     marketexperts = ['StockMKTNewz']#Checking issue related to scaping X.

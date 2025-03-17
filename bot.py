@@ -203,10 +203,10 @@ async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE, max_retries=3
     for attempt in range(max_retries):
         try:
             message = await prepere_x_summary()
-            print("Message")
-            print(message)
+            logger.info("Message to distribute from X")
+            logger.info(message)
             if message is None:
-                print("[DEBUG] No summary available to send.")
+                logger.info("No X summary available to send.")
                 return
 
             alerts = load_alerts()
@@ -218,18 +218,16 @@ async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE, max_retries=3
                     text=message,
                     parse_mode="HTML"
                 )
-                print(f"[DEBUG] Sent summary to user {user_id}")
-
             # If successful, break out of the retry loop
             return
 
         except Exception as e:
-            print(f"[ERROR] Attempt {attempt + 1} failed: {e}")
+            logger.error(f"Attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:  # Don't wait after the last attempt
-                print(f"[DEBUG] Retrying in {retry_delay} seconds...")
+                logger.error(f"Retrying in {retry_delay} seconds...")
                 await asyncio.sleep(retry_delay)
             else:
-              print("[ERROR] Max retries reached. Summary distribution failed.")
+              logger.error("Max retries reached. Summary distribution failed.")
 
 async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
     """
@@ -237,7 +235,7 @@ async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
     """
     message = prepere_summary()
     if message is None:
-        print("[DEBUG] No summary available to send.")
+        logger.warning("Distribute X summary was called, but no smmary was found.")
         return
 
     # Retrieve user IDs from the alerts database.
@@ -251,7 +249,6 @@ async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
             text=message,
             parse_mode="HTML"
         )
-        print(f"[DEBUG] Sent summary to user {user_id}")
 
 # Functions to compute alerts
 def calculate_sma(ticker, period=20):
@@ -316,8 +313,6 @@ def debug_save_alert(user_id, alert):
         LIMIT 1
     ''', (user_id,))
     result = cursor.fetchone()
-    print("Debug: Last saved alert for user", user_id, ":", result)
-
 
 def load_alerts():
     cursor.execute("""
@@ -361,7 +356,6 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Market is closed. Next check in {wait_time:.0f} seconds.")
         if checkalertsjob:
             checkalertsjob.remove()
-            print("Job removed successfully")
         context.job_queue.run_once(run_check_alerts, wait_time)
         #context.job_queue.run_once(check_alerts, wait_time, data=context)
         return
@@ -376,7 +370,7 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     # 2️⃣ Download price data for all tickers at once (1-day period, 1-minute interval)
     logger.info(f"Downloading data for {len(tickers)} tickers: {tickers}")
     try:
-        data = yf.download(list(tickers), period="1d", interval="1m", group_by="ticker", threads=True)
+        data = yf.download(list(tickers), period="1d", interval="1m", group_by="ticker",auto_adjust=True ,threads=True)
     except Exception as e:
         logger.error(f"Error fetching stock data: {e}")
         return
@@ -655,7 +649,7 @@ async def add_sma_trace(fig, ticker, alert, current_price, threshold, start_date
     ))
     sma_series = df_extended.loc[start_date:]['SMA']
     if sma_series.empty or sma_series.isna().all():
-        print("DEBUG: SMA series is empty or all NaN")
+        logger.warning("SMA series is empty or all NaN")
         return True
     fig.add_trace(go.Scatter(
         x=df_extended.loc[start_date:].index,
@@ -665,10 +659,9 @@ async def add_sma_trace(fig, ticker, alert, current_price, threshold, start_date
         name=f"SMA({period})"
     ))
     last_sma = sma_series.iloc[-1]
-    print(f"DEBUG: current_price: {current_price}, last_sma: {last_sma}, threshold: {threshold}")
     # Check explicitly if last_sma is a number before subtracting
     if last_sma is None or pd.isna(last_sma):
-        print("DEBUG: last_sma is None or NaN; skipping marker")
+        logger.warning("last_sma is None or NaN; skipping marker")
         return True
     else:
         #if abs(current_price - last_sma) <= threshold:
@@ -773,7 +766,7 @@ def get_multiple_market_info(symbols):
                 else:
                     info[symbol] = "N/A"
         except Exception as e:
-            print("Error fetching 1d data:", e)
+            logger.error("Error fetching 1d data:", e)
     
     return info
 
@@ -834,9 +827,7 @@ async def advanced_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def adv_btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    choice = query.data
-    print("[DEBUG] adv_btn_handler received callback data:", choice)
-    
+    choice = query.data    
     if choice == 'advanced':
         await advanced_menu(update, context)
     elif choice == 'latest_live_summary':
@@ -864,7 +855,7 @@ async def video_selection_callback(update: Update, context: ContextTypes.DEFAULT
             reply_markup=None
         )
     except Exception as e:
-        print("[DEBUG] Failed to edit message:", e)
+        logger.error("Failed to edit message:", e)
     
     # Extract the video ID from the callback data.
     data = query.data
@@ -877,7 +868,7 @@ async def video_selection_callback(update: Update, context: ContextTypes.DEFAULT
         try:
             await query.edit_message_text("Please send me the YouTube video ID or link.")
         except Exception as e:
-            print("[DEBUG] Failed to edit message for manual input:", e)
+            logger.error("Failed to edit message for manual input:", e)
         context.user_data['awaiting_video_id_for_gemini'] = True
     else:
         # If the callback data does not match, update the message accordingly.
@@ -1606,13 +1597,11 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(text_message, parse_mode="Markdown", reply_markup=reply_markup)
-    print("DEBUG: Confirmation message sent.", flush=True)
     ticker = context.user_data.get('ticker')
     # Historical data: start from date1 until today
     date1 = pd.to_datetime(context.user_data.get('date1'))
     start_date_str = date1.strftime("%Y-%m-%d")
     end_date_str = datetime.now().strftime("%Y-%m-%d")
-    print("DEBUG: Starting chart generation for custom line alert.", flush=True)
 
     loop = asyncio.get_running_loop()
 
@@ -1627,7 +1616,6 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="No data available to generate the chart."
             )
             return ConversationHandler.END
-        print("DEBUG: Historical data downloaded successfully.", flush=True)
     except Exception as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -1701,7 +1689,6 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
             margin=dict(l=50, r=50, t=80, b=50),
             showlegend=False
         )
-        print("DEBUG: Chart created successfully.", flush=True)
     except Exception as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -1718,9 +1705,7 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return buf.getvalue()
         img_bytes = await loop.run_in_executor(None, convert_fig)
         if not img_bytes:
-            print("DEBUG: No image bytes returned.", flush=True)
-        else:
-            print("DEBUG: Chart image generated successfully.", flush=True)
+            logging.error("No image bytes returned.")
     except Exception as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -1734,13 +1719,11 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
             photo=img_bytes,
             caption="Here is your candlestick chart with the custom line!"
         )
-        print("DEBUG: Chart image sent to user successfully.", flush=True)
     except Exception as e:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="An error occurred while sending the chart image."
         )
-    print("DEBUG: End of get_threshold.", flush=True)
     return ConversationHandler.END
 
 
@@ -1768,9 +1751,7 @@ async def print_active_jobs(context: ContextTypes.DEFAULT_TYPE):
 def main():
     global user_alerts
     user_alerts = load_alerts()  # Load persisted alerts from the database
-    print("Loaded alerts:", user_alerts)  # Debug print
     API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
-    print("API Token:", API_TOKEN)
     application = ApplicationBuilder().token(API_TOKEN).build()
 
     # ---------------- Command Handlers ----------------
@@ -1848,8 +1829,8 @@ def main():
 
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     #Temporerly disabling the X summary distrubution, seems to get blocked from all my X accounts.
-    #application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
-    #application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
+    application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=16, minute=30, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=00, tzinfo=israel_tz))
 
