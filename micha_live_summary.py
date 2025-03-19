@@ -33,7 +33,7 @@ SECOND_LIVE_END = datetime.time(hour=23, minute=0)
 AFTERNOON_SESSION_START = datetime.time(hour=14, minute=30)
 AFTERNOON_SESSION_END   = datetime.time(hour=16, minute=29)
 EVENING_SESSION_START = datetime.time(21, 20, 0)
-EVENING_SESSION_END = datetime.time(23, 29, 0)
+EVENING_SESSION_END = datetime.time(00, 50, 0)
 
 
 # Create transcripts directory if it does not exist.
@@ -89,7 +89,6 @@ def get_target_date_range():
     print(f"[DEBUG] UTC range: {published_after} to {published_before}")
     
     return published_after, published_before
-
 
 def get_live_video_items():
     """
@@ -330,7 +329,7 @@ def get_transcript_for_video(video_id: str) -> str:
         transcript_text = get_video_transcript(video_id)
         if not transcript_text:
             print(f"[DEBUG] Could not retrieve transcript for video {video_id}.")
-            return ""
+            return None
         save_transcript(video_id, transcript_text)
     
     return transcript_text
@@ -346,6 +345,8 @@ def get_latest_summary(video_id=None):
         print(f"[DEBUG] Processing specific video ID: {video_id}")
         # Check if transcript is already saved
         transcript_text = get_transcript_for_video(video_id)
+        if transcript_text == None:
+            return
         
         # Process transcript to generate summary
         summary_text = process_video(video_id, transcript_text)
@@ -381,6 +382,8 @@ def get_latest_summary(video_id=None):
         print(f"[DEBUG] Processing latest video ID: {video_id}, published at (UTC): {published_at}")
 
         transcript_text = get_transcript_for_video(video_id)
+        if transcript_text == None:
+            return
         
         summary_text = process_video(video_id, transcript_text)
         #print(f"[DEBUG] Summary for video {video_id}:\n{summary_text}\n")

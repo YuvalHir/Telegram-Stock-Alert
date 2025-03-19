@@ -229,14 +229,21 @@ async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE, max_retries=3
             else:
               logger.error("Max retries reached. Summary distribution failed.")
 
-async def distribute_summary(context: ContextTypes.DEFAULT_TYPE):
+MAX_RETRIES = 3
+async def distribute_summary(context: ContextTypes.DEFAULT_TYPE, retries=0):
     """
     Retrieves the summary message using get_summary() and sends it to all users.
     """
     message = prepere_summary()
     if message is None:
-        logger.warning("Distribute X summary was called, but no smmary was found.")
+        if retries < MAX_RETRIES:
+            # Retry the check after 30 minutes.
+            logger.warning(f"No summary found. Retrying in 30 minutes. Attempt {retries + 1}/{MAX_RETRIES}")
+            context.job_queue.run_once(run_check_alerts, 1800, data=retries + 1)  # 1800 seconds = 30 minutes
+        else:
+            logger.error(f"Summary could not be found after {MAX_RETRIES} attempts. No further retries.")
         return
+
 
     # Retrieve user IDs from the alerts database.
     alerts = load_alerts()

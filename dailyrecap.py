@@ -49,7 +49,7 @@ def is_after_market_open(date_string):
     try:
         date_object = datetime.strptime(date_string, "%a %b %d %H:%M:%S %z %Y")
         now_utc = datetime.now(timezone.utc)
-        today_1430_utc = datetime(now_utc.year, now_utc.month, now_utc.day, 14, 30, 0, tzinfo=timezone.utc)
+        today_1430_utc = datetime(now_utc.year, now_utc.month, now_utc.day, 13, 30, 0, tzinfo=timezone.utc)
         return date_object < today_1430_utc
 
     except ValueError as e:
@@ -78,12 +78,14 @@ async def gettweets(username,before):
     else:
         print("Gathering tweets after market open untill now")
         while not (is_after_market_open(user_tweets[len(user_tweets)-1].created_at)):
+            print("Here is the tweet i checked",user_tweets[len(user_tweets)-1].created_at,"AM open, gathering more tweets")
             user_tweets = await user_tweets.next()
             for tweet in user_tweets:
                 cur_tweets.append(tuple([tweet.text, tweet.created_at]))
+        print("Here is the tweet i checked",user_tweets[len(user_tweets)-1].created_at,"BeforeM open, deleting some tweets")
         for i in range(len(cur_tweets)-1,0,-1):
             date = cur_tweets[i][1]
-            if not is_after_market_open(date):
+            if is_after_market_open(date):
                 del cur_tweets[i]
             else:
                 break
@@ -240,18 +242,19 @@ async def recap():
         auth_info_1=USERNAME,
         auth_info_2=EMAIL,
         password=PASSWORD,
-        cookies_file='cookies.json'
+        cookies_file='cookies.json',
         enable_ui_metrics=True
     )
     #marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
     marketexperts = ['StockMKTNewz']#Checking issue related to scaping X.
+    #before = True
     if market_open:
         if before:
             print("Before market open breif")
             info =[]
             for user in marketexperts:
                 info.extend(await gettweets(user,True))
-            print("Gathering tweets for today completed, here is what i got")
+            print("Gathering tweets for today morning session completed, here is what i got")
             print(info)
             response = await getreadyfortoday(info, True)
             print("Response from Gemini recived, here it is:")
@@ -271,7 +274,7 @@ async def recap():
     else:
         return None
 
-#asyncio.run(recap())
+asyncio.run(recap())
 
 ##################################################################################
 # Prompt for writing a post for twitter - works with gemini-2.0-flash-thinking-exp
