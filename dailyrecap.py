@@ -245,8 +245,8 @@ async def recap():
         cookies_file='cookies.json',
         enable_ui_metrics=True
     )
-    #marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
-    marketexperts = ['StockMKTNewz']#Checking issue related to scaping X.
+    marketexperts = ['StockMKTNewz','wallstengine', 'AAIISentiment', 'markets']
+    #marketexperts = ['StockMKTNewz']#Checking issue related to scaping X.
     #before = True
     if market_open:
         if before:
@@ -274,7 +274,7 @@ async def recap():
     else:
         return None
 
-asyncio.run(recap())
+#asyncio.run(recap())
 
 ##################################################################################
 # Prompt for writing a post for twitter - works with gemini-2.0-flash-thinking-exp
