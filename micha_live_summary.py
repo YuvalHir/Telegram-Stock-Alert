@@ -367,7 +367,7 @@ def get_latest_summary(video_id=None):
         video_items = get_live_video_items()
         if not video_items:
             print("[DEBUG] No matching live videos found for the target date.")
-            return
+            return None, None
 
         # Sort videos by publishedAt (descending) and pick the latest one
         latest_video = sorted(
@@ -383,7 +383,7 @@ def get_latest_summary(video_id=None):
 
         transcript_text = get_transcript_for_video(video_id)
         if transcript_text == None:
-            return
+            return None, None
         
         summary_text = process_video(video_id, transcript_text)
         #print(f"[DEBUG] Summary for video {video_id}:\n{summary_text}\n")
@@ -395,10 +395,10 @@ def gemini_generate_content(prompt: str, system_instruction: str) -> str:
     This function wraps your Gemini API call.
     """
     response = client.models.generate_content(
-        model="gemini-2.0-flash-thinking-exp-1219",
+        model="gemini-2.0-flash-lite",
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
-            tools=[google_search_tool],
+            #tools=[google_search_tool],
             response_modalities=["TEXT"],
             ),
         contents=prompt

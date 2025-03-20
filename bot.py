@@ -51,9 +51,9 @@ conn.commit()
 
 
 # Enable logging
-logging.getLogger("yfinance").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+#logging.getLogger("yfinance").setLevel(logging.WARNING)
+#logging.getLogger("urllib3").setLevel(logging.WARNING)
+#logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -219,6 +219,7 @@ async def distribute_x_summary(context: ContextTypes.DEFAULT_TYPE, max_retries=3
                     parse_mode="HTML"
                 )
             # If successful, break out of the retry loop
+            print(f"Loaded alerts: {alerts}") # Add this line
             return
 
         except Exception as e:
@@ -734,7 +735,18 @@ async def alert_response_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 # Command to start the bot
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome to the Stock Alert Bot! Use /newalert to add a new alert or /listalerts to view your active alerts.")
+    # Initialize user data for new users
+    context.user_data.clear()  # Clear previous data if any
+    # Optionally, clear chat data and bot data if necessary
+    context.chat_data.clear()
+    context.bot_data.clear()
+
+    await update.message.reply_text("👋 Welcome to the Stock Alert Bot! Use /newalert to add a new alert or /menu to go to the main menu.")
+
+
+async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Sorry, something went wrong. Please try again later.")
+    return ConversationHandler.END
 
 async def handle_new_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -779,16 +791,10 @@ def get_multiple_market_info(symbols):
 
 
 async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
+    context.user_data.clear()  # Clear conversation data
     chat_id = update.message.chat_id if update.message else update.callback_query.message.chat_id
-
-    # List of tickers for the market info.
-    symbols = ["^GSPC", "^IXIC", "^VIX", "BTC-USD"]  # Indices only have daily data
-
+    symbols = ["^GSPC", "^IXIC", "^VIX", "BTC-USD"]
     market_info = get_multiple_market_info(symbols)
-
-
-    # Build the inline keyboard for navigation
     keyboard = [
         [InlineKeyboardButton("➕ New Alert ", callback_data="new_alert")],
         [InlineKeyboardButton("📋 List Alerts ", callback_data="list_alerts")],
@@ -797,7 +803,6 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔧 Settings ", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     text = (
         "🏠 *Main Menu*\n\n"
         "*Market Updates Today:*\n"
@@ -808,15 +813,16 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Welcome to *Stock Alert Bot*! \n\n"
         "Select one of the options below to proceed:\n\n"
     )
-
     if update.callback_query:
         await update.callback_query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
         )
+        return ConversationHandler.END  # Exit conversation
     else:
         await update.message.reply_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
         )
+        return None  # No conversation to end
 
 
 async def advanced_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1297,8 +1303,8 @@ async def remove_alert_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ----- Conversation for New Alert -----
 async def newalert_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Determine the chat_id whether this update comes from a message or a callback query.
-    chat_id = update.message.chat_id if update.message else update.callback_query.message.chat_id
+    logger.info(f"newalert_entry called for user {update.effective_user.id}")
+    chat_id = update.effective_chat.id
     keyboard = [
         [InlineKeyboardButton("📈 SMA Alert", callback_data="sma")],
         [InlineKeyboardButton("💰 Price Alert", callback_data="price")],
@@ -1311,21 +1317,35 @@ async def newalert_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Please choose the type of alert you'd like to set:",
         reply_markup=reply_markup
     )
+    logger.info(f"Returning ALERT_TYPE for user {update.effective_user.id}")
     return ALERT_TYPE
 
 async def alert_type_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     alert_type = query.data
+    logger.info(f"alert_type_choice called for user {update.effective_user.id} with data: {alert_type}")
     context.user_data['alert_type'] = alert_type
-    # Delete the original message (with the inline keyboard)
-    await query.delete_message()
-    # Send a new message without any inline keyboard
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text="✍️ Please enter the stock ticker (e.g., AAPL):"
-    )
-    return GET_TICKER
+    try:
+        await query.delete_message()
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="✍️ Please enter the stock ticker (e.g., AAPL):"
+        )
+        logger.info(f"Moving to GET_TICKER for user {update.effective_user.id}")
+        return GET_TICKER
+    except Exception as e:
+        logger.error(f"Error in alert_type_choice for user {update.effective_user.id}: {e}")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="An error occurred. Please try again."
+        )
+        return ConversationHandler.END
+
+# Catch-all callback logger
+async def log_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Callback received: {update.callback_query.data} for user {update.effective_user.id}")
+    # Don’t return anything to pass to other handlers
 
 async def get_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker = update.message.text.strip().upper()
@@ -1509,6 +1529,7 @@ async def accept_price2_callback(update: Update, context: ContextTypes.DEFAULT_T
     return GET_THRESHOLD
 
 async def get_price2_override(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Current user_data in get_price2_override: {context.user_data}")
     user_input = update.message.text.strip()
     try:
         custom_price = float(user_input)
@@ -1537,8 +1558,11 @@ async def default_threshold_callback(update: Update, context: ContextTypes.DEFAU
         "Default threshold of 0.5 accepted.\n"
         "You will receive the chart shortly..."
     )
-    # Proceed with chart generation or next step here...
-    return GET_THRESHOLD
+    # Proceed to the next state directly
+    print(f"Current user_data at the end of default_threshold_callback: {context.user_data}")
+    await get_threshold(update, context)
+    return ConversationHandler.END
+
 
 def calculate_custom_line_trading_days(date1, price1, date2, price2):
     # Convert input dates to pandas Timestamps
@@ -1568,15 +1592,39 @@ def calculate_custom_line_trading_days(date1, price1, date2, price2):
 
 
 async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text.strip()
-    if user_input.lower() == 'skip':
-        threshold = 0.5
-    else:
-        try:
-            threshold = float(user_input)
-        except ValueError:
-            await update.message.reply_text("❌ Invalid input. Please enter a numeric threshold or type 'skip':")
-            return GET_THRESHOLD
+    print(f"get_threshold was called, current user_data: {context.user_data}")
+    threshold = context.user_data.get('threshold', 0.5)  # Default threshold
+    text_message = (
+        f"✅ Custom Line alert set for *{context.user_data.get('ticker')}* from {context.user_data.get('date1')} "
+        f"({context.user_data.get('price1'):.2f}) to {context.user_data.get('date2')} "
+        f"({context.user_data.get('price2'):.2f}) with threshold ±{threshold}!\n"
+        "You will receive the chart shortly..."
+    )
+    keyboard = [
+        [InlineKeyboardButton("➕ Add Another Alert", callback_data="new_alert")],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.message:  # Check if it's a text message
+        user_input = update.message.text.strip()
+        if user_input.lower() == 'skip':
+            threshold = 0.5
+        else:
+            try:
+                threshold = float(user_input)
+            except ValueError:
+                await update.message.reply_text("❌ Invalid input. Please enter a numeric threshold or type 'skip':")
+                return GET_THRESHOLD
+    elif update.callback_query:  # Check if it's a callback query
+        # Use callback query to reply instead of message
+        await update.callback_query.message.reply_text(text_message, parse_mode="Markdown", reply_markup=reply_markup)
+        # Create a new Update object with the message from the callback query
+        from telegram import Update
+        update = Update(
+            update_id=update.update_id,
+            message=update.callback_query.message
+        )
     context.user_data['threshold'] = threshold
 
     # Save the custom line alert (and update your in-memory store)
@@ -1603,7 +1651,7 @@ async def get_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(text_message, parse_mode="Markdown", reply_markup=reply_markup)
+
     ticker = context.user_data.get('ticker')
     # Historical data: start from date1 until today
     date1 = pd.to_datetime(context.user_data.get('date1'))
@@ -1757,23 +1805,29 @@ async def print_active_jobs(context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------------------
 def main():
     global user_alerts
-    user_alerts = load_alerts()  # Load persisted alerts from the database
+    user_alerts = load_alerts()
     API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
     application = ApplicationBuilder().token(API_TOKEN).build()
+    logger.info("Bot starting, registering handlers...")
 
-    # ---------------- Command Handlers ----------------
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("listalerts", list_alerts))
-    application.add_handler(CommandHandler("menu", handle_main_menu))
-    application.add_handler(CommandHandler("start_ai_chat", start_ai_chat))
-    
-    # ---------------- Conversation Handler for New Alerts ----------------
     conv_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("newalert", newalert_entry),
-            CallbackQueryHandler(newalert_entry, pattern="^new_alert$")
+            CommandHandler("newalert", newalert_entry, filters=filters.ChatType.PRIVATE),
+            CallbackQueryHandler(newalert_entry, pattern="^new_alert$"),
         ],
         states={
+            ALERT_TYPE: [
+                CallbackQueryHandler(alert_type_choice, pattern="^(sma|price|custom_line)$"),
+                CallbackQueryHandler(handle_main_menu, pattern="^main_menu$"),  # Cancel exits
+                CallbackQueryHandler(
+                    lambda update, context: logger.info(f"Unhandled callback in ALERT_TYPE: {update.callback_query.data}"),
+                    pattern=".*"
+                )
+            ],
+            GET_TICKER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_ticker)],
+            GET_PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_period)],
+            GET_DIRECTION: [CallbackQueryHandler(get_direction)],
+            GET_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)],
             GET_DATE1: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_date1)],
             GET_PRICE1_OVERRIDE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_price1_override),
@@ -1782,27 +1836,25 @@ def main():
             GET_DATE2: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_date2)],
             GET_PRICE2_OVERRIDE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_price2_override),
-                CallbackQueryHandler(accept_price2_callback, pattern="^accept_price2$")
+                CallbackQueryHandler(accept_price2_callback, pattern="^accept_price2$"),
+                CallbackQueryHandler(default_threshold_callback, pattern="^default_threshold$")
             ],
             GET_THRESHOLD: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_threshold),
                 CallbackQueryHandler(default_threshold_callback, pattern="^default_threshold$")
             ],
-            ALERT_TYPE: [CallbackQueryHandler(alert_type_choice)],
-            LIST_ALERTS: [
-                CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$")
-            ],
-            GET_TICKER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_ticker)],
-            GET_PERIOD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_period)],
-            GET_DIRECTION: [CallbackQueryHandler(get_direction)],
-            GET_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_price)]
         },
         fallbacks=[CommandHandler("cancel", handle_main_menu)]
     )
-    application.add_handler(conv_handler)
 
-    # ---------------- Specific Callback Query Handlers ----------------
-    # Handlers for main menu and other specific functions.
+    application.add_handler(CallbackQueryHandler(log_callback), group=-1)
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("newalert", newalert_entry, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("listalerts", list_alerts))
+    application.add_handler(CommandHandler("menu", handle_main_menu))
+    application.add_handler(CommandHandler("start_ai_chat", start_ai_chat))
+
     application.add_handler(CallbackQueryHandler(handle_main_menu, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(handle_list_alerts, pattern="^list_alerts$"))
     application.add_handler(CallbackQueryHandler(handle_help, pattern="^help$"))
@@ -1810,40 +1862,23 @@ def main():
     application.add_handler(CallbackQueryHandler(remove_alert_callback, pattern="^remove_"))
     application.add_handler(CallbackQueryHandler(alert_response_handler, pattern="^(remove_|keep_)"))
     application.add_handler(CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$"))
-    application.add_handler(CallbackQueryHandler(newalert_entry, pattern="^new_alert$"))
 
-    # ---------------- Advanced and Video Selection Handlers ----------------
-    # Advanced menu: note the pattern filter restricts it to expected callback data.
-    application.add_handler(CallbackQueryHandler(
-        video_selection_callback, 
-        pattern=r'^(video_select:.*|manual_video)$'
-    ))
-    application.add_handler(CallbackQueryHandler(advanced_menu, pattern="^advanced$"))
-    application.add_handler(CallbackQueryHandler(
-        adv_btn_handler, 
-        pattern="^(advanced|latest_live_summary|custom_live_summary|ai_interrogation)$"
-    ))
+    application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r'^(video_select:.*|manual_video)$'))
+    application.add_handler(CallbackQueryHandler(advanced_menu, pattern="^advanced$"))  # Handles "Advanced" outside conversation
+    application.add_handler(CallbackQueryHandler(adv_btn_handler, pattern="^(advanced|latest_live_summary|custom_live_summary|ai_interrogation)$"))
     application.add_handler(CallbackQueryHandler(end_chat_callback, pattern=r'^end_chat$'))
 
-    
-    # ---------------- Generic Message Handler ----------------
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_text_handler))
-    
-    # ---------------- Job Queue ----------------
+
     global checkalertsjob
     checkalertsjob = application.job_queue.run_repeating(check_alerts, interval=60, first=10)
-    #application.job_queue.run_repeating(print_active_jobs, interval=10, first=10)
-
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    #Temporerly disabling the X summary distrubution, seems to get blocked from all my X accounts.
     application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=16, minute=30, tzinfo=israel_tz))
     application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=00, tzinfo=israel_tz))
 
-    # ---------------- Start the Bot ----------------
-    application.run_polling()
-
-
+    logger.info("Handlers registered, starting polling...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 if __name__ == '__main__':
     main()
