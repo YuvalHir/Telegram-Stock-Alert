@@ -124,16 +124,26 @@ def markdown_to_html(md_text: str) -> str:
     # Join the lines with newlines (two newlines between bullets for an empty line)
     return "\n\n".join(html_lines)
 
+previous_summary_text = None
+previous_published_dt = None
+
 def prepere_summary(videoid=None):
     """
     Retrieves the latest summary and its published datetime, converts the datetime to Israel time,
     processes the summary by converting it to HTML with right-to-left formatting, and returns the
     complete HTML message.
     """
+    global previous_summary_text, previous_published_dt
     summary_text, published_dt = get_latest_summary(videoid)
     if summary_text is None or published_dt is None:
         return None
+    
+    if summary_text == previous_summary_text and published_dt == previous_published_dt:
+        return None
 
+    previous_summary_text = summary_text
+    previous_published_dt = published_dt
+    
     # Convert published_dt to Israel time for display.
     israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
     published_local = published_dt.astimezone(israel_tz)
