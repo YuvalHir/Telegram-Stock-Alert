@@ -1,7 +1,7 @@
 import asyncio
 import os
 from twikit import Client
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, time
 import zoneinfo # Added for timezone support
 from dotenv import load_dotenv
 from google import genai
@@ -29,8 +29,8 @@ xclient = Client('en-US')
 
 # Define New York timezone and market hours
 NEW_YORK_TZ = zoneinfo.ZoneInfo("America/New_York")
-NY_MARKET_OPEN_TIME = datetime.time(9, 30)
-NY_MARKET_CLOSE_TIME = datetime.time(16, 0)
+NY_MARKET_OPEN_TIME = time(9, 30)
+NY_MARKET_CLOSE_TIME = time(16, 0)
 
 today = date.today() # This 'today' is used for filename in getreadyfortoday and save_summary, based on script execution date.
 
