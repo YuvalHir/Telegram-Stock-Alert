@@ -2,6 +2,7 @@ import asyncio
 import os
 from twikit import Client
 from datetime import datetime, timedelta, timezone, date
+import zoneinfo # Added for timezone support
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -26,7 +27,12 @@ if not os.path.exists(SUMMARIES_DIR):
 # Initialize client
 xclient = Client('en-US')
 
-today = date.today()
+# Define New York timezone and market hours
+NEW_YORK_TZ = zoneinfo.ZoneInfo("America/New_York")
+NY_MARKET_OPEN_TIME = datetime.time(9, 30)
+NY_MARKET_CLOSE_TIME = datetime.time(16, 0)
+
+today = date.today() # This 'today' is used for filename in getreadyfortoday and save_summary, based on script execution date.
 
 def is_market_open_today(market_name="NYSE"):
     today = datetime.now(timezone.utc).date()
@@ -37,9 +43,13 @@ def is_market_open_today(market_name="NYSE"):
 def is_before_market_close(date_string):
     try:
         date_object = datetime.strptime(date_string, "%a %b %d %H:%M:%S %z %Y")
-        now_utc = datetime.now(timezone.utc)
-        yesterday_2100_utc = datetime(now_utc.year, now_utc.month, now_utc.day, 21, 0, 0, tzinfo=timezone.utc) - timedelta(days=1)
-        return date_object < yesterday_2100_utc
+        # Determine yesterday's market close in NYT and convert to UTC
+        now_in_ny = datetime.now(NEW_YORK_TZ)
+        yesterday_in_ny = now_in_ny - timedelta(days=1)
+        threshold_dt_ny = datetime.combine(yesterday_in_ny.date(), NY_MARKET_CLOSE_TIME, tzinfo=NEW_YORK_TZ)
+        threshold_utc = threshold_dt_ny.astimezone(timezone.utc)
+        # True if tweet date is before yesterday's NY market close
+        return date_object < threshold_utc
 
     except ValueError as e:
         print(f"Error parsing date: {e}")
@@ -48,9 +58,12 @@ def is_before_market_close(date_string):
 def is_after_market_open(date_string):
     try:
         date_object = datetime.strptime(date_string, "%a %b %d %H:%M:%S %z %Y")
-        now_utc = datetime.now(timezone.utc)
-        today_1430_utc = datetime(now_utc.year, now_utc.month, now_utc.day, 13, 30, 0, tzinfo=timezone.utc)
-        return date_object < today_1430_utc
+        # Determine today's market open in NYT and convert to UTC
+        now_in_ny = datetime.now(NEW_YORK_TZ)
+        threshold_dt_ny = datetime.combine(now_in_ny.date(), NY_MARKET_OPEN_TIME, tzinfo=NEW_YORK_TZ)
+        threshold_utc = threshold_dt_ny.astimezone(timezone.utc)
+        # True if tweet date is before today's NY market open
+        return date_object < threshold_utc
 
     except ValueError as e:
         print(f"Error parsing date: {e}")
@@ -231,9 +244,13 @@ def get_saved_summary(name):
 async def recap():
     today = date.today().strftime("%Y%m%d")
     market_open = is_market_open_today()
-    now_utc = datetime.now(timezone.utc)
-    target_time = now_utc.replace(hour=14, minute=30, second=0, microsecond=0)
-    before = now_utc < target_time
+    now_utc = datetime.now(timezone.utc) # Current time in UTC
+    # Determine decision point based on today's NY market open time
+    now_in_ny = datetime.now(NEW_YORK_TZ)
+    decision_point_dt_ny = datetime.combine(now_in_ny.date(), NY_MARKET_OPEN_TIME, tzinfo=NEW_YORK_TZ)
+    decision_point_utc = decision_point_dt_ny.astimezone(timezone.utc)
+    
+    before = now_utc < decision_point_utc
     print("searching for:", before*"PRE"+(not before)*"AFT"+today)
     if get_saved_summary(before*"PRE"+(not before)*"AFT"+today):
         #print(get_saved_summary(before*"PRE"+(not before) * "AFT"+today))

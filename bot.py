@@ -855,7 +855,10 @@ async def adv_btn_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await advanced_menu(update, context)
     elif choice == 'latest_live_summary':
         summary = prepere_summary()  # Call prepere_summary with no arguments.
-        await query.edit_message_text(text=summary, parse_mode="HTML")
+        if summary:
+            await query.edit_message_text(text=summary, parse_mode="HTML")
+        else:
+            await query.edit_message_text(text="The latest live summary is the same as the previous one, or could not be retrieved.")
     elif choice == 'custom_live_summary':
         await query.edit_message_text(
             text="Please provide the YouTube video ID or link for the custom live summary."
@@ -1882,11 +1885,29 @@ def main():
 
     global checkalertsjob
     checkalertsjob = application.job_queue.run_repeating(check_alerts, interval=60, first=10)
-    israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=15, minute=15, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_x_summary, time=time(hour=22, minute=15, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_summary, time=time(hour=16, minute=30, tzinfo=israel_tz))
-    application.job_queue.run_daily(distribute_summary, time=time(hour=23, minute=00, tzinfo=israel_tz))
+    
+    # Define New York timezone and market hours
+    NEW_YORK_TZ = zoneinfo.ZoneInfo("America/New_York")
+    NY_MARKET_OPEN_TIME = time(9, 30, tzinfo=NEW_YORK_TZ)
+    NY_MARKET_CLOSE_TIME = time(16, 0, tzinfo=NEW_YORK_TZ)
+
+    # Schedule distribute_x_summary
+    # 15 minutes before NY market open (9:15 AM NYT)
+    distribute_x_pre_market_time = (datetime.combine(datetime.today(), NY_MARKET_OPEN_TIME) - timedelta(minutes=15)).time()
+    application.job_queue.run_daily(distribute_x_summary, time=distribute_x_pre_market_time.replace(tzinfo=NEW_YORK_TZ))
+    
+    # 15 minutes after NY market open (9:45 AM NYT)
+    distribute_x_post_open_time = (datetime.combine(datetime.today(), NY_MARKET_OPEN_TIME) + timedelta(minutes=15)).time()
+    application.job_queue.run_daily(distribute_x_summary, time=distribute_x_post_open_time.replace(tzinfo=NEW_YORK_TZ))
+
+    # Schedule distribute_summary
+    # 1 hour after NY market open (10:30 AM NYT)
+    distribute_summary_post_open_time = (datetime.combine(datetime.today(), NY_MARKET_OPEN_TIME) + timedelta(hours=1)).time()
+    application.job_queue.run_daily(distribute_summary, time=distribute_summary_post_open_time.replace(tzinfo=NEW_YORK_TZ))
+
+    # 1 hour after NY market close (5:00 PM NYT / 17:00 NYT)
+    distribute_summary_post_close_time = (datetime.combine(datetime.today(), NY_MARKET_CLOSE_TIME) + timedelta(hours=1)).time()
+    application.job_queue.run_daily(distribute_summary, time=distribute_summary_post_close_time.replace(tzinfo=NEW_YORK_TZ))
 
     logger.info("Handlers registered, starting polling...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

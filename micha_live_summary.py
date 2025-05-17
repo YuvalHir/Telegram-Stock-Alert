@@ -25,15 +25,33 @@ google_search_tool = Tool(
 )
 
 
-# Define threshold times (in local Israel time) for the lives to be considered finished.
-FIRST_LIVE_END = datetime.time(hour=16, minute=30)
-SECOND_LIVE_END = datetime.time(hour=23, minute=0)
+# Define threshold times
+# OLD Israel Time based decision points:
+# FIRST_LIVE_END = datetime.time(hour=16, minute=30) # This logic is now handled by NY_TARGET_DAY_DECISION_TIME
+# SECOND_LIVE_END = datetime.time(hour=23, minute=0) # This was not actively used in date range logic
 
-# Define session ranges in Israel local time
-AFTERNOON_SESSION_START = datetime.time(hour=14, minute=30)
-AFTERNOON_SESSION_END   = datetime.time(hour=16, minute=29)
-EVENING_SESSION_START = datetime.time(21, 20, 0)
-EVENING_SESSION_END = datetime.time(00, 50, 0)
+NEW_YORK_TZ = zoneinfo.ZoneInfo("America/New_York")
+
+# Decision time for "today" vs "yesterday" video search, based on NYT.
+# This aims to replicate the behavior of the old FIRST_LIVE_END (16:30 Israel Time).
+_israel_decision_dt_temp = datetime.datetime.combine(
+    datetime.date.min, # Using .min as an arbitrary date for time conversion
+    datetime.time(hour=16, minute=30),
+    tzinfo=zoneinfo.ZoneInfo("Asia/Jerusalem")
+)
+NY_TARGET_DAY_DECISION_TIME = _israel_decision_dt_temp.astimezone(NEW_YORK_TZ).time()
+
+# New York Time session definitions
+NY_MORNING_LIVE_START = datetime.time(hour=8, minute=30)
+NY_MORNING_LIVE_END = datetime.time(hour=10, minute=30)    # End is exclusive
+NY_AFTERNOON_LIVE_START = datetime.time(hour=15, minute=0)
+NY_AFTERNOON_LIVE_END = datetime.time(hour=17, minute=0)  # End is exclusive
+
+# OLD Define session ranges in Israel local time - Will be removed or commented
+# AFTERNOON_SESSION_START = datetime.time(hour=14, minute=30)
+# AFTERNOON_SESSION_END   = datetime.time(hour=16, minute=29)
+# EVENING_SESSION_START = datetime.time(21, 20, 0)
+# EVENING_SESSION_END = datetime.time(00, 50, 0)
 
 
 # Create transcripts directory if it does not exist.
@@ -56,36 +74,35 @@ def get_target_date_range():
     If the evening session spans midnight (i.e. EVENING_SESSION_START > EVENING_SESSION_END),
     the publishedBefore is extended to the next day at EVENING_SESSION_END.
     """
-    israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
-    now_israel = datetime.datetime.now(israel_tz)
-    print(f"[DEBUG] Current time in Israel: {now_israel.strftime('%Y-%m-%d %H:%M:%S')}")
+    # israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem") # This function now uses NEW_YORK_TZ defined globally
+    now_ny = datetime.datetime.now(NEW_YORK_TZ)
+    print(f"[DEBUG] Current time in New York: {now_ny.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
-    if now_israel.time() >= FIRST_LIVE_END:
-        target_date = now_israel.date()
-        print("[DEBUG] Current time is after FIRST_LIVE_END, using today's date.")
+    if now_ny.time() >= NY_TARGET_DAY_DECISION_TIME:
+        target_date = now_ny.date()
+        print(f"[DEBUG] Current NY time ({now_ny.time()}) is on or after NY_TARGET_DAY_DECISION_TIME ({NY_TARGET_DAY_DECISION_TIME}), using today's date in NY: {target_date}")
     else:
-        target_date = now_israel.date() - datetime.timedelta(days=1)
-        print("[DEBUG] Current time is before FIRST_LIVE_END, using yesterday's date.")
+        target_date = now_ny.date() - datetime.timedelta(days=1)
+        print(f"[DEBUG] Current NY time ({now_ny.time()}) is before NY_TARGET_DAY_DECISION_TIME ({NY_TARGET_DAY_DECISION_TIME}), using yesterday's date in NY: {target_date}")
 
-    # publishedAfter is the start of the target date (local midnight)
-    start_local = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=israel_tz)
+    # publishedAfter is the start of the target date in NY time
+    start_target_day_ny = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=NEW_YORK_TZ)
 
-    # Determine publishedBefore: if evening session spans midnight, use target_date + 1 with EVENING_SESSION_END.
-    if EVENING_SESSION_START > EVENING_SESSION_END:
-        end_local = datetime.datetime.combine(target_date + datetime.timedelta(days=1), EVENING_SESSION_END, tzinfo=israel_tz)
-    else:
-        end_local = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=israel_tz)
+    # publishedBefore is the end of the target date in NY time
+    # The old logic for evening session spanning midnight is no longer needed for this date range determination
+    # as we are considering the full target_date in NY time.
+    end_target_day_ny = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=NEW_YORK_TZ)
     
-    # Convert the local times to UTC.
-    start_utc = start_local.astimezone(datetime.timezone.utc)
-    end_utc = end_local.astimezone(datetime.timezone.utc)
+    # Convert the NY times to UTC.
+    start_utc = start_target_day_ny.astimezone(datetime.timezone.utc)
+    end_utc = end_target_day_ny.astimezone(datetime.timezone.utc)
     
     published_after = start_utc.isoformat().replace('+00:00', 'Z')
     published_before = end_utc.isoformat().replace('+00:00', 'Z')
     
-    print(f"[DEBUG] Target date: {target_date}")
-    print(f"[DEBUG] Local start time: {start_local.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"[DEBUG] Local end time: {end_local.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[DEBUG] Target date (in NY timezone context): {target_date}")
+    print(f"[DEBUG] NY start time for range: {start_target_day_ny.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"[DEBUG] NY end time for range: {end_target_day_ny.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     print(f"[DEBUG] UTC range: {published_after} to {published_before}")
     
     return published_after, published_before
@@ -97,7 +114,7 @@ def get_live_video_items():
     and uses the live's start time rather than the snippet's published time.
     Returns a list of video items that match either the afternoon or evening session.
     """
-    israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem")
+    # israel_tz = zoneinfo.ZoneInfo("Asia/Jerusalem") # Using global NEW_YORK_TZ defined above
     youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
     published_after, published_before = get_target_date_range()
 
@@ -134,54 +151,60 @@ def get_live_video_items():
     detailed_items = videos_response.get("items", [])
 
     # Print the session boundaries for debugging.
-    print("[DEBUG] Afternoon session start:", AFTERNOON_SESSION_START, "end:", AFTERNOON_SESSION_END)
-    print("[DEBUG] Evening session start:", EVENING_SESSION_START, "end:", EVENING_SESSION_END)
+    print("[DEBUG] NY Morning session start:", NY_MORNING_LIVE_START, "end:", NY_MORNING_LIVE_END)
+    print("[DEBUG] NY Afternoon session start:", NY_AFTERNOON_LIVE_START, "end:", NY_AFTERNOON_LIVE_END)
 
-    afternoon_videos = []
-    evening_videos = []
+    morning_videos_ny = []
+    afternoon_videos_ny = []
     for item in detailed_items:
         # Get live streaming details.
         live_details = item.get("liveStreamingDetails", {})
         # Use actualStartTime if available, otherwise scheduledStartTime, otherwise fall back to snippet.publishedAt.
-        print("act",live_details.get("actualStartTime"),"sced", live_details.get("scheduledStartTime"), "pub", item["snippet"]["publishedAt"])
+        # print("act",live_details.get("actualStartTime"),"sced", live_details.get("scheduledStartTime"), "pub", item["snippet"]["publishedAt"]) # Original verbose debug, commented out
         start_time_str = (live_details.get("actualStartTime") or
                           live_details.get("scheduledStartTime") or
                           item["snippet"]["publishedAt"])
 
-        try:
-            published_dt_utc = datetime.datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-        except Exception as e:
-            print(f"[DEBUG] Error parsing time {start_time_str}: {e}")
+        if not start_time_str: # Ensure start_time_str is not None or empty
+            print(f"[DEBUG] Video {item.get('id', 'N/A')} has no valid start time string from liveDetails or publishedAt. Skipping.")
             continue
 
-        published_dt_israel = published_dt_utc.astimezone(israel_tz)
-        video_time = published_dt_israel.time()
-        local_time_str = published_dt_israel.strftime('%Y-%m-%d %H:%M:%S')
-        print(f"[DEBUG] Video {item['id']} local start time: {local_time_str} (time: {video_time})")
+        try:
+            # Attempt to parse with fromisoformat for robustness, handling 'Z' for UTC
+            published_dt_utc = datetime.datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            # Ensure timezone is set to UTC if fromisoformat didn't infer it (e.g., if no Z or offset was in string)
+            # This is important because datetime.fromisoformat might return naive datetime if tz is not in string.
+            if published_dt_utc.tzinfo is None or published_dt_utc.tzinfo.utcoffset(published_dt_utc) is None:
+                 published_dt_utc = published_dt_utc.replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            # Fallback to strptime if fromisoformat fails (e.g. different format not covered by isoformat like lacking seconds)
+            try:
+                published_dt_utc = datetime.datetime.strptime(start_time_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+            except Exception as e_strptime: # More specific exception for strptime failure
+                print(f"[DEBUG] Error parsing time string '{start_time_str}' with strptime for video {item.get('id', 'N/A')}: {e_strptime}")
+                continue
+        except Exception as e_iso: # Catch any other parsing errors from fromisoformat
+            print(f"[DEBUG] General error parsing time string '{start_time_str}' with fromisoformat for video {item.get('id', 'N/A')}: {e_iso}")
+            continue
+            
+        published_dt_new_york = published_dt_utc.astimezone(NEW_YORK_TZ) # Use global NEW_YORK_TZ
+        video_time_ny = published_dt_new_york.time()
+        local_time_str_ny = published_dt_new_york.strftime('%Y-%m-%d %H:%M:%S %Z')
+        video_title_for_debug = item.get("snippet", {}).get("title", "N/A") # Get title for clearer logs
+        print(f"[DEBUG] Video {item['id']} ('{video_title_for_debug}') NY start time: {local_time_str_ny} (time: {video_time_ny})")
 
-        # Filter based on Israel local time.
-        if AFTERNOON_SESSION_START <= video_time < AFTERNOON_SESSION_END:
-            print(f"[DEBUG] Video {item['id']} falls within the afternoon session.")
-            afternoon_videos.append(item)
+        # Filter based on New York local time.
+        if NY_MORNING_LIVE_START <= video_time_ny < NY_MORNING_LIVE_END:
+            print(f"[DEBUG] Video {item['id']} ('{video_title_for_debug}') falls within the NY morning session.")
+            morning_videos_ny.append(item)
+        elif NY_AFTERNOON_LIVE_START <= video_time_ny < NY_AFTERNOON_LIVE_END:
+            print(f"[DEBUG] Video {item['id']} ('{video_title_for_debug}') falls within the NY afternoon session.")
+            afternoon_videos_ny.append(item)
         else:
-            # Check if evening session crosses midnight.
-            if EVENING_SESSION_START <= EVENING_SESSION_END:
-                # Evening session does not cross midnight.
-                if EVENING_SESSION_START <= video_time <= EVENING_SESSION_END:
-                    print(f"[DEBUG] Video {item['id']} falls within the evening session (non-midnight crossing).")
-                    evening_videos.append(item)
-                else:
-                    print(f"[DEBUG] Video {item['id']} does NOT fall within the evening session (non-midnight crossing).")
-            else:
-                # Evening session spans midnight: valid if time >= EVENING_SESSION_START or <= EVENING_SESSION_END.
-                if video_time >= EVENING_SESSION_START or video_time <= EVENING_SESSION_END:
-                    print(f"[DEBUG] Video {item['id']} falls within the evening session (midnight crossing).")
-                    evening_videos.append(item)
-                else:
-                    print(f"[DEBUG] Video {item['id']} does NOT fall within the evening session (midnight crossing).")
+            print(f"[DEBUG] Video {item['id']} ('{video_title_for_debug}') at NY time {video_time_ny} does NOT fall within any defined NY session.")
 
-    combined_videos = afternoon_videos + evening_videos
-    print(f"[DEBUG] Total videos after filtering: {len(combined_videos)}")
+    combined_videos = morning_videos_ny + afternoon_videos_ny
+    print(f"[DEBUG] Total videos after filtering (NY sessions): {len(combined_videos)}")
     return combined_videos
 
 
@@ -297,7 +320,7 @@ def process_video(video_id, transcript_text):
     prompt = transcript_text
 
     response = client.models.generate_content(
-        model="gemini-2.0-pro-exp",
+        model="gemini-2.0-flash-exp",
         config=types.GenerateContentConfig(
             system_instruction=sys_instruct),
         contents=prompt
