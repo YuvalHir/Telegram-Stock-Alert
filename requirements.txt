@@ -1,18 +1,11 @@
-# Requirements for TradeTracker Bot
-
-# From bot.py
-pandas
-yfinance
 python-telegram-bot
-pytz
+yfinance
+pandas
 plotly
-
-# From dailyrecap.py
-twikit
-python-dotenv
-google-generativeai
-pandas-market-calendars
-
-# From micha_live_summary.py
+pytz
 google-api-python-client
 youtube-transcript-api
+google-generativeai
+twikit
+pandas-market-calendars
+python-dotenv
