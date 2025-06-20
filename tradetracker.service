@@ -5,13 +5,12 @@ Wants=update-bot.service
 After=update-bot.service
 
 [Service]
-# Command to execute the bot using the virtual environment's python
-ExecStart=/home/pi/tradetracker_bot/.venv/bin/python /home/pi/tradetracker_bot/bot.py
-# The working directory for the bot, where it can find files like 'varribles.env'
-WorkingDirectory=/home/pi/tradetracker_bot
-# The user to run the service as
-User=pi
-# Automatically restart the service if it fails, after a 10-second delay
+# Load all variables from the .env file
+EnvironmentFile=/home/yuval/tradetracker_bot/varribles.env
+# Use the $PROJECT_DIR variable for paths
+ExecStart=${PROJECT_DIR}/.venv/bin/python ${PROJECT_DIR}/bot.py
+WorkingDirectory=${PROJECT_DIR}
+User=yuval
 Restart=always
 RestartSec=10
 

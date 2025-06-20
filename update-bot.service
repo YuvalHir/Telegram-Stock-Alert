@@ -5,8 +5,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/pi/tradetracker_bot/update.sh
-User=pi
+# Load the environment variables from this file
+EnvironmentFile=/home/yuval/tradetracker_bot/varribles.env
+# The script to run. Note: The script itself will read PROJECT_DIR.
+ExecStart=/bin/bash ${PROJECT_DIR}/update.sh
+User=yuval
 
 [Install]
 WantedBy=multi-user.target

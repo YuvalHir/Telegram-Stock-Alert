@@ -1,23 +1,30 @@
 #!/bin/bash
 # A script to update the TradeTracker Bot from Git and refresh dependencies.
 
-# Navigate to the bot's directory
-# IMPORTANT: You may need to change this path to match your setup on the Raspberry Pi
-cd /home/pi/tradetracker_bot || exit
+# Load environment variables from the .env file
+if [ -f "$(dirname "$0")/varribles.env" ]; then
+    export $(cat "$(dirname "$0")/varribles.env" | grep -v '#' | sed 's/\r$//' | awk '/=/ {print $1}')
+fi
+
+# Check if PROJECT_DIR is set
+if [ -z "$PROJECT_DIR" ]; then
+    echo "Error: PROJECT_DIR is not set in varribles.env. Please set it to the absolute path of your project."
+    exit 1
+fi
+
+echo "--- Navigating to project directory: $PROJECT_DIR ---"
+cd "$PROJECT_DIR" || exit
 
 echo "--- Pulling latest code from GitHub ---"
 git pull origin main
 
 echo "--- Activating virtual environment ---"
-# Activate the Python virtual environment
 source .venv/bin/activate
 
 echo "--- Updating yfinance and twikit ---"
-# Update the key libraries that can have frequent patches
 pip install --upgrade yfinance twikit
 
 echo "--- Installing all requirements ---"
-# Install any new requirements if requirements.txt has changed
 pip install -r requirements.txt
 
 echo "--- TradeTracker Bot update complete ---"
