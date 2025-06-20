@@ -1,0 +1,12 @@
+[Unit]
+Description=Update TradeTracker Bot from GitHub
+# This ensures the service runs after the network is online, which is needed for git pull
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/pi/tradetracker_bot/update.sh
+User=pi
+
+[Install]
+WantedBy=multi-user.target

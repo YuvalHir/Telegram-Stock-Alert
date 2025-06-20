@@ -1,0 +1,19 @@
+[Unit]
+Description=TradeTracker Telegram Bot
+# This ensures the update script runs first
+Wants=update-bot.service
+After=update-bot.service
+
+[Service]
+# Command to execute the bot using the virtual environment's python
+ExecStart=/home/pi/tradetracker_bot/.venv/bin/python /home/pi/tradetracker_bot/bot.py
+# The working directory for the bot, where it can find files like 'varribles.env'
+WorkingDirectory=/home/pi/tradetracker_bot
+# The user to run the service as
+User=pi
+# Automatically restart the service if it fails, after a 10-second delay
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
