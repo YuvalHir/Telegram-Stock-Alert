@@ -1,6 +1,6 @@
 python-telegram-bot
 yfinance
-pandas
+pandas<2.3
 numpy
 plotly
 pytz
