@@ -8,7 +8,7 @@ from plotly import graph_objects as go
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from bot_core import config
-from devutils.fear_greed_scraper import get_fear_greed_index
+from bot_core.services.fear_greed_service import get_fear_greed_index_api
 from bot_core.utils.market_data_cache import market_cache
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("Fetching new Fear & Greed Index...")
         try:
             # get_fear_greed_index returns (category, value_str)
-            category, value_str = get_fear_greed_index()
+            category, value_str = get_fear_greed_index_api()
             fear_greed_data = f"Fear & Greed Index: {category} ({value_str})"
             market_cache.set('fear_greed_index', fear_greed_data)
             logger.info(f"Fetched and cached: {fear_greed_data}")
