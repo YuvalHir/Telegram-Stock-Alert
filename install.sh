@@ -90,29 +90,33 @@ fi
 print_step "Configuring Environment Variables (varribles.env)"
 ENV_FILE="varribles.env"
 
-print_info "Please provide the following information to create your $ENV_FILE file."
-print_info "Your current PROJECT_DIR is set to: $PROJECT_DIR"
+if [ -f "$ENV_FILE" ]; then
+    print_info "$ENV_FILE already exists. Skipping environment variable configuration."
+else
+    print_info "Please provide the following information to create your $ENV_FILE file."
+    print_info "Your current PROJECT_DIR is set to: $PROJECT_DIR"
 
-# Prompt for each variable
-read -p "$(print_info 'Enter your YOUTUBE_API_KEY: ')" YOUTUBE_API_KEY
-read -p "$(print_info 'Enter your GEMINI_API_KEY: ')" GEMINI_API_KEY
-read -p "$(print_info 'Enter your TELEGRAM_API_TOKEN: ')" TELEGRAM_API_TOKEN
-read -p "$(print_info 'Enter your X (Twitter) Username: ')" x_username
-read -s -p "$(print_info 'Enter your X (Twitter) Password: ')" x_password # -s for silent input
-echo "" # Newline after silent input
-read -p "$(print_info 'Enter your X (Twitter) Email: ')" x_email
+    # Prompt for each variable
+    read -p "$(print_info 'Enter your YOUTUBE_API_KEY: ')" YOUTUBE_API_KEY
+    read -p "$(print_info 'Enter your GEMINI_API_KEY: ')" GEMINI_API_KEY
+    read -p "$(print_info 'Enter your TELEGRAM_API_TOKEN: ')" TELEGRAM_API_TOKEN
+    read -p "$(print_info 'Enter your X (Twitter) Username: ')" x_username
+    read -s -p "$(print_info 'Enter your X (Twitter) Password: ')" x_password # -s for silent input
+    echo "" # Newline after silent input
+    read -p "$(print_info 'Enter your X (Twitter) Email: ')" x_email
 
-# Write to .env file
-echo "# Environment variables for TradeTracker Bot" > "$ENV_FILE"
-echo "YOUTUBE_API_KEY=$YOUTUBE_API_KEY" >> "$ENV_FILE"
-echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> "$ENV_FILE"
-echo "TELEGRAM_API_TOKEN=$TELEGRAM_API_TOKEN" >> "$ENV_FILE"
-echo "PROJECT_DIR=$PROJECT_DIR" >> "$ENV_FILE"
-echo "x_username=$x_username" >> "$ENV_FILE"
-echo "x_password=$x_password" >> "$ENV_FILE"
-echo "x_email=$x_email" >> "$ENV_FILE"
+    # Write to .env file
+    echo "# Environment variables for TradeTracker Bot" > "$ENV_FILE"
+    echo "YOUTUBE_API_KEY=$YOUTUBE_API_KEY" >> "$ENV_FILE"
+    echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> "$ENV_FILE"
+    echo "TELEGRAM_API_TOKEN=$TELEGRAM_API_TOKEN" >> "$ENV_FILE"
+    echo "PROJECT_DIR=$PROJECT_DIR" >> "$ENV_FILE"
+    echo "x_username=$x_username" >> "$ENV_FILE"
+    echo "x_password=$x_password" >> "$ENV_FILE"
+    echo "x_email=$x_email" >> "$ENV_FILE"
 
-print_success "$ENV_FILE created and configured."
+    print_success "$ENV_FILE created and configured."
+fi
 
 # Load environment variables from the .env file for the current script execution
 # This is needed to run the bot in the next step
