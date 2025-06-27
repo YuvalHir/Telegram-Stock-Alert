@@ -106,7 +106,7 @@ def add_price_trace(fig, df, alert, current_price, threshold):
     target_price = alert['target_price']
     fig.add_shape(
         type="line",
-        x0=df.index[0],
+        x0=df.index,
         y0=target_price,
         x1=df.index[-1],
         y1=target_price,
@@ -167,15 +167,15 @@ async def generate_alert_graph(alert: dict, stock_service, alert_manager) -> byt
     elif alert_type == "price":
         add_price_trace(fig, df, alert, current_price, threshold)
 
-    # Update layout with rangebreaks to skip weekends
+    # Update layout and use 'category' type for x-axis to remove non-trading day gaps.
+    # This is the standard and most reliable method.
     fig.update_layout(
         template='plotly_dark',
         title={'text': f"{ticker} Alert Graph (Latest 14 Days)", 'x': 0.5},
         xaxis=dict(
             title="Date",
-            type='date',
+            type='category',  # This treats dates as discrete categories, removing gaps.
             rangeslider=dict(visible=False),
-            rangebreaks=[dict(bounds=["sat", "mon"])]
         ),
         showlegend=False,
         yaxis=dict(title="Price"),
