@@ -12,4 +12,3 @@ pandas-market-calendars
 python-dotenv
 requests
 beautifulsoup4
-selenium

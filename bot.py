@@ -27,7 +27,7 @@ from bot_core.services.ai_service import AIService
 from bot_core.utils.cache_manager import CacheManager
 from bot_core.managers.summary_manager import SummaryManager
 from bot_core.alerts import AlertManager
-from devutils.fear_greed_scraper import get_fear_greed_index
+from bot_core.services.fear_greed_service import get_fear_greed_index_api
 from bot_core.utils.market_data_cache import market_cache
 
 # --- Handler Imports ---
@@ -96,7 +96,7 @@ async def fetch_and_cache_fear_greed_index(context: ContextTypes.DEFAULT_TYPE):
    logger.info("Job triggered: Fetching and caching Fear & Greed Index.")
    try:
        # get_fear_greed_index returns (category, value_str)
-       category, value_str = get_fear_greed_index()
+       category, value_str = get_fear_greed_index_api()
        fear_greed_data = f"Fear & Greed Index: {category} ({value_str})"
        market_cache.set('fear_greed_index', fear_greed_data)
        logger.info(f"Fetched and cached: {fear_greed_data}")
@@ -116,7 +116,7 @@ async def fetch_and_cache_fear_greed_index(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Job triggered: Fetching and caching Fear & Greed Index.")
     try:
         # get_fear_greed_index returns (category, value_str)
-        category, value_str = get_fear_greed_index()
+        category, value_str = get_fear_greed_index_api()
         fear_greed_data = f"Fear & Greed Index: {category} ({value_str})"
         market_cache.set('fear_greed_index', fear_greed_data)
         logger.info(f"Fetched and cached: {fear_greed_data}")
