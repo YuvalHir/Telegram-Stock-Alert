@@ -8,6 +8,8 @@ from plotly import graph_objects as go
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from bot_core import config
+from devutils.fear_greed_scraper import get_fear_greed_index
+from bot_core.utils.market_data_cache import market_cache
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +26,26 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Access the stock_service from bot_data
     stock_service = context.bot_data['stock_service']
-    
+
     market_info = stock_service.get_multiple_market_info(config.MARKET_SYMBOLS)
-    
+
+    # --- Fear & Greed Index Integration ---
+    fear_greed_data = market_cache.get('fear_greed_index')
+    if fear_greed_data is None:
+        logger.info("Fetching new Fear & Greed Index...")
+        try:
+            # get_fear_greed_index returns (category, value_str)
+            category, value_str = get_fear_greed_index()
+            fear_greed_data = f"Fear & Greed Index: {category} ({value_str})"
+            market_cache.set('fear_greed_index', fear_greed_data)
+            logger.info(f"Fetched and cached: {fear_greed_data}")
+        except Exception as e:
+            logger.error(f"Failed to fetch Fear & Greed Index: {e}")
+            fear_greed_data = "Fear & Greed Index: N/A (Error fetching)"
+    else:
+        logger.info(f"Using cached Fear & Greed Index: {fear_greed_data}")
+    # --- End Fear & Greed Index Integration ---
+
     keyboard = [
         [InlineKeyboardButton("➕ New Alert", callback_data="new_alert")],
         [InlineKeyboardButton("📋 List Alerts", callback_data="list_alerts")],
@@ -34,17 +53,18 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚀 Advanced", callback_data="advanced")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     text = (
         "🏠 *Main Menu*\n\n"
         "*Market Updates Today:*\n"
         f"📈 S&P 500: {market_info.get('^GSPC', 'N/A')}\n"
         f"📊 Nasdaq: {market_info.get('^IXIC', 'N/A')}\n"
         f"😮 VIX: {market_info.get('^VIX', 'N/A')}\n"
-        f"₿ Bitcoin: {market_info.get('BTC-USD', 'N/A')}\n\n"
+        f"₿ Bitcoin: {market_info.get('BTC-USD', 'N/A')}\n"
+        f"📊 {fear_greed_data}\n\n" # Add Fear & Greed Index here
         "Select an option to proceed:"
     )
-    
+
     if update.callback_query:
         await update.callback_query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=reply_markup

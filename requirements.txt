@@ -1,6 +1,8 @@
 python-telegram-bot
 yfinance
-pandas
+# Use older, more stable versions for Raspberry Pi compatibility
+pandas==1.5.3
+numpy==1.24.4
 plotly
 pytz
 google-api-python-client
@@ -9,3 +11,6 @@ google-generativeai
 twikit
 pandas-market-calendars
 python-dotenv
+requests
+beautifulsoup4
+selenium
