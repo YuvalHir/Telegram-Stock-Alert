@@ -148,44 +148,20 @@ class AlertManager:
         await self.send_alert_graph(user_id, alert, current_price)
         
     async def send_alert_graph(self, chat_id: int, alert: dict, current_price: float):
-        """Generates and sends a graph for a triggered alert."""
-        ticker = alert['ticker']
-        loop = asyncio.get_running_loop()
-        start_date = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
-        end_date = datetime.now().strftime("%Y-%m-%d")
-
-        df = await loop.run_in_executor(
-            None, lambda: self.stock_service.get_complete_daily_data(ticker, start_date, end_date)
-        )
-        if df.empty:
-            logger.warning(f"No data for {ticker} to generate graph.")
-            return
-
-        fig = go.Figure(data=[go.Candlestick(
-            x=df.index,
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            increasing_line_color='green',
-            decreasing_line_color='red',
-        )])
-
-        fig.update_layout(
-            template='plotly_dark',
-            title={'text': f"{ticker} Alert Graph", 'x': 0.5},
-            xaxis_rangeslider_visible=False
-        )
-
-        # Here you would call the specific trace adders (add_sma_trace, etc.)
-        # For now, this is a simplified version. The logic will be moved here.
-
-        img_bytes = await loop.run_in_executor(
-            None, lambda: fig.to_image(format="png", width=1200, height=800, scale=2)
-        )
+        """Generates and sends a graph for a triggered alert using the centralized graphing function."""
         
-        await self.bot.send_photo(
-            chat_id,
-            photo=img_bytes,
-            caption=f"Graph for {ticker} alert."
-        )
+        # Generate the graph using the utility function
+        img_bytes = await generate_alert_graph(alert, self.stock_service, self)
+        
+        if img_bytes:
+            await self.bot.send_photo(
+                chat_id,
+                photo=img_bytes,
+                caption=f"Graph for your {alert['ticker']} alert."
+            )
+        else:
+            logger.error(f"Failed to generate graph for {alert['ticker']}.")
+            await self.bot.send_message(
+                chat_id,
+                f"Could not generate a graph for the {alert['ticker']} alert."
+            )

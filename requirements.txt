@@ -16,3 +16,4 @@ beautifulsoup4
 python-telegram-bot[job-queue]
 matplotlib<3.10.3
 mplfinance
+kaleido

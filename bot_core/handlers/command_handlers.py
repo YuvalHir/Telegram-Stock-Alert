@@ -126,68 +126,33 @@ async def send_all_graphs_callback(update: Update, context: ContextTypes.DEFAULT
     await send_all_graphs(update, context)
     return ConversationHandler.END
 
+from bot_core.utils.graphing import generate_alert_graph
+
 async def send_all_graphs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Fetches all alerts for a user, generates, and sends a graph for each."""
     chat_id = update.effective_chat.id
     db_manager = context.bot_data['db_manager']
     stock_service = context.bot_data['stock_service']
+    alert_manager = context.bot_data['alert_manager']
     
     rows = db_manager.get_alerts_for_user(chat_id)
     if not rows:
         await context.bot.send_message(chat_id, "😅 You have no active alerts to graph.")
         return
 
-    loop = asyncio.get_running_loop()
     for row in rows:
         # Create a dictionary from the tuple
-        alert = dict(zip(['id', 'alert_type', 'ticker', 'period', 'target_price', 'direction', 'date1', 'price1', 'date2', 'price2', 'threshold'], row))
+        alert = dict(zip(['id', 'type', 'ticker', 'period', 'target_price', 'direction', 'date1', 'price1', 'date2', 'price2', 'threshold'], row))
         ticker = alert['ticker']
         
         try:
-            start_date_str = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-            end_date_str = datetime.now().strftime("%Y-%m-%d")
+            # Generate the graph using the centralized utility function
+            img_bytes = await generate_alert_graph(alert, stock_service, alert_manager)
 
-            df = await loop.run_in_executor(
-                None, lambda: stock_service.get_complete_daily_data(ticker, start_date_str, end_date_str)
-            )
-            if df.empty:
-                await context.bot.send_message(chat_id, f"No data for {ticker} to generate a graph.")
-                continue
-
-            # Use Matplotlib for plotting
-            fig, ax = plt.subplots(figsize=(10, 6))
-
-            # Plot candlestick chart
-            # Matplotlib candlestick requires specific data format
-            # Need to convert DataFrame to the required format: (date, open, close, high, low)
-            ohlc = []
-            for index, row in df.iterrows():
-                ohlc.append([mdates.date2num(index), row['Open'], row['Close'], row['High'], row['Low']])
-
-            from mplfinance.original_flavor import candlestick_ohlc
-            candlestick_ohlc(ax, ohlc, width=0.6, colorup='g', colordown='r', alpha=0.8)
-
-            # Formatting
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            fig.autofmt_xdate() # Auto-rotate date labels
-
-            ax.set_title(f"{ticker} Graph")
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Price")
-            plt.grid(True)
-
-            # Simplified for now. Detailed trace logic will be added later.
-
-            # Save the plot to a BytesIO object
-            img_bytes = BytesIO()
-            plt.savefig(img_bytes, format='png')
-            img_bytes.seek(0) # Rewind the buffer
-
-            # Close the plot to free up memory
-            plt.close(fig)
-
-            await context.bot.send_photo(chat_id, photo=img_bytes, caption=f"Graph for your {ticker} alert.")
+            if img_bytes:
+                await context.bot.send_photo(chat_id, photo=img_bytes, caption=f"Graph for your {ticker} alert.")
+            else:
+                await context.bot.send_message(chat_id, f"Could not generate a graph for {ticker}.")
 
         except Exception as e:
             logger.error(f"Error generating graph for {ticker}: {e}")
