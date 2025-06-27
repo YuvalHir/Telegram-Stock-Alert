@@ -127,16 +127,48 @@ fi
 # --- Step 8: Configure Systemd Services (for Raspberry Pi/Linux) ---
 print_step "Configuring Systemd Services (for Raspberry Pi/Linux)"
 
+# Define service file content with a placeholder for the project directory
+TRADETRACKER_SERVICE_CONTENT='[Unit]
+Description=TradeTracker Telegram Bot
+Wants=update-bot.service
+After=update-bot.service
+
+[Service]
+EnvironmentFile=__PROJECT_DIR__/varribles.env
+ExecStart=__PROJECT_DIR__/.venv/bin/python __PROJECT_DIR__/bot.py
+WorkingDirectory=__PROJECT_DIR__
+User=yuval
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+'
+
+UPDATE_BOT_SERVICE_CONTENT='[Unit]
+Description=Update TradeTracker Bot from GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=__PROJECT_DIR__/varribles.env
+ExecStart=/bin/bash __PROJECT_DIR__/update.sh
+User=yuval
+
+[Install]
+WantedBy=multi-user.target
+'
+
 # Make the update script executable
 print_info "Making update.sh executable..."
 chmod +x update.sh || { print_error "Failed to make update.sh executable."; }
 print_success "update.sh is executable."
 
-# Link the service files to systemd
-print_info "Linking service files to systemd..."
-sudo ln -s "$PROJECT_DIR/update-bot.service" /etc/systemd/system/update-bot.service || { print_error "Failed to link update-bot.service."; }
-sudo ln -s "$PROJECT_DIR/tradetracker.service" /etc/systemd/system/tradetracker.service || { print_error "Failed to link tradetracker.service."; }
-print_success "Service files linked."
+# Write service files to systemd directory, replacing placeholder with actual project path
+print_info "Writing service files to /etc/systemd/system/..."
+echo "$TRADETRACKER_SERVICE_CONTENT" | sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" | sudo tee /etc/systemd/system/tradetracker.service > /dev/null || { print_error "Failed to write tradetracker.service."; }
+echo "$UPDATE_BOT_SERVICE_CONTENT" | sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" | sudo tee /etc/systemd/system/update-bot.service > /dev/null || { print_error "Failed to write update-bot.service."; }
+print_success "Service files written."
 
 # Reload the systemd daemon, enable, and start the services
 print_info "Reloading systemd daemon, enabling, and starting services..."

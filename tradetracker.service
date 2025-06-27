@@ -4,8 +4,8 @@ Wants=update-bot.service
 After=update-bot.service
 
 [Service]
-EnvironmentFile=${PROJECT_DIR}/varribles.env
-ExecStart=${PROJECT_DIR}/.venv/bin/python ${PROJECT_DIR}/bot.py
+EnvironmentFile=/home/yuval/tradetracker_bot/varribles.env
+ExecStart=/home/yuval/tradetracker_bot/.venv/bin/python /home/yuval/tradetracker_bot/bot.py
 WorkingDirectory=${PROJECT_DIR}
 User=yuval
 Restart=always
