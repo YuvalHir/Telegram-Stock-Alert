@@ -1,8 +1,7 @@
 python-telegram-bot
 yfinance
-# Use older, more stable versions for Raspberry Pi compatibility
-pandas==1.5.3
-numpy==1.24.4
+pandas
+numpy
 plotly
 pytz
 google-api-python-client
