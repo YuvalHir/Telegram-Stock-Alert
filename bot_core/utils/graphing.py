@@ -56,64 +56,48 @@ def add_custom_line_trace(fig, alert, current_price, threshold, alert_manager):
             name='Cross'
         ))
 
-async def add_sma_trace(fig, ticker, alert, current_price, threshold, start_date, end_date, loop, stock_service):
+def add_sma_trace(fig, df, alert, current_price, threshold):
+    """
+    Calculates and adds an SMA trace to the provided figure.
+    """
     # Ensure threshold has a default value if it's None
     threshold = threshold or 0.5
-
     period = alert.get('period', 20)
-    extended_days = max(7, period * 2)
-    start_date_extended = (datetime.now() - timedelta(days=extended_days)).strftime("%Y-%m-%d")
-    df_extended = await loop.run_in_executor(
-        None,
-        lambda: stock_service.get_complete_daily_data(ticker, start_date_extended, end_date)
-    )
-    if df_extended.empty:
-        return False
-    if isinstance(df_extended.columns, pd.MultiIndex):
-        df_extended.columns = df_extended.columns.droplevel(1)
-    df_extended['SMA'] = df_extended['Close'].rolling(window=period, min_periods=1).mean()
-    # Restrict plotting to the chosen period (e.g., last 14 days)
-    df_plot = df_extended.loc[start_date:]
-    fig.data = []  # Clear existing traces
-    fig.add_trace(go.Candlestick(
-        x=df_plot.index,
-        open=df_plot['Open'],
-        high=df_plot['High'],
-        low=df_plot['Low'],
-        close=df_plot['Close'],
-        increasing_line_color='green',
-        decreasing_line_color='red',
-        showlegend=False
-    ))
-    sma_series = df_extended.loc[start_date:]['SMA']
+
+    # Calculate SMA on the provided DataFrame
+    df['SMA'] = df['Close'].rolling(window=period, min_periods=1).mean()
+    sma_series = df['SMA']
+    
     if sma_series.empty or sma_series.isna().all():
         logger.warning("SMA series is empty or all NaN")
-        return True
+        return
+
+    # Add the SMA trace to the existing figure
     fig.add_trace(go.Scatter(
-        x=df_extended.loc[start_date:].index,
+        x=df.index,
         y=sma_series,
         mode='lines',
         line=dict(color='orange', width=3),
         name=f"SMA({period})"
     ))
+
     last_sma = sma_series.iloc[-1]
-    # Check explicitly if last_sma is a number before subtracting
     if last_sma is None or pd.isna(last_sma):
         logger.warning("last_sma is None or NaN; skipping marker")
-        return True
-    else:
-        #if abs(current_price - last_sma) <= threshold:
-            last_date = df_extended.loc[start_date:].index[-1]
-            fig.add_trace(go.Scatter(
-                x=[last_date],
-                y=[last_sma],
-                mode='markers+text',
-                marker=dict(color='red', size=16, symbol='star-diamond', line=dict(color='black', width=2)),
-                text=["Target"],
-                textposition="top center",
-                name='Target Marker'
-            ))
-    return True
+        return
+        
+    # Add a marker if the price is close to the SMA
+    if abs(current_price - last_sma) <= threshold:
+        last_date = df.index[-1]
+        fig.add_trace(go.Scatter(
+            x=[last_date],
+            y=[last_sma],
+            mode='markers+text',
+            marker=dict(color='red', size=16, symbol='star-diamond', line=dict(color='black', width=2)),
+            text=["Target"],
+            textposition="top center",
+            name='Target Marker'
+        ))
 
 def add_price_trace(fig, df, alert, current_price, threshold):
     """
@@ -179,9 +163,7 @@ async def generate_alert_graph(alert: dict, stock_service, alert_manager) -> byt
     if alert_type == "custom_line":
         add_custom_line_trace(fig, alert, current_price, threshold, alert_manager)
     elif alert_type == "sma":
-        success = await add_sma_trace(fig, ticker, alert, current_price, threshold, start_date, end_date, loop, stock_service)
-        if not success:
-            logger.warning(f"Failed to generate SMA data for {ticker}.")
+        add_sma_trace(fig, df, alert, current_price, threshold)
     elif alert_type == "price":
         add_price_trace(fig, df, alert, current_price, threshold)
 
@@ -191,6 +173,7 @@ async def generate_alert_graph(alert: dict, stock_service, alert_manager) -> byt
         title={'text': f"{ticker} Alert Graph (Latest 14 Days)", 'x': 0.5},
         xaxis=dict(
             title="Date",
+            type='date',
             rangeslider=dict(visible=False),
             rangebreaks=[dict(bounds=["sat", "mon"])]
         ),
