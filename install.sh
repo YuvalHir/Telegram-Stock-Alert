@@ -124,13 +124,37 @@ if [ -f "$ENV_FILE" ]; then
     export $(cat "$ENV_FILE" | grep -v '#' | sed 's/\r$//' | awk '/=/ {print $1}')
 fi
 
-# --- Step 8: Start the Bot ---
-print_step "Starting the TradeTracker Bot"
+# --- Step 8: Configure Systemd Services (for Raspberry Pi/Linux) ---
+print_step "Configuring Systemd Services (for Raspberry Pi/Linux)"
+
+# Make the update script executable
+print_info "Making update.sh executable..."
+chmod +x update.sh || { print_error "Failed to make update.sh executable."; }
+print_success "update.sh is executable."
+
+# Link the service files to systemd
+print_info "Linking service files to systemd..."
+sudo ln -s "$PROJECT_DIR/update-bot.service" /etc/systemd/system/update-bot.service || { print_error "Failed to link update-bot.service."; }
+sudo ln -s "$PROJECT_DIR/tradetracker.service" /etc/systemd/system/tradetracker.service || { print_error "Failed to link tradetracker.service."; }
+print_success "Service files linked."
+
+# Reload the systemd daemon, enable, and start the services
+print_info "Reloading systemd daemon, enabling, and starting services..."
+sudo systemctl daemon-reload || { print_error "Failed to reload systemd daemon."; }
+sudo systemctl enable update-bot.service || { print_error "Failed to enable update-bot.service."; }
+sudo systemctl enable tradetracker.service || { print_error "Failed to enable tradetracker.service."; }
+sudo systemctl start tradetracker.service || { print_error "Failed to start tradetracker.service."; }
+print_success "Systemd services configured and started."
+
+# --- Step 9: Start the Bot (Manual Run) ---
+print_step "Starting the TradeTracker Bot (Manual Run)"
 # Ensure the bot script exists
 if [ -f "bot.py" ]; then
     print_info "Starting bot. Press Ctrl+C to stop."
     # Execute the bot script. Use exec to replace the current shell process with the bot process.
     # This means the script will end when the bot stops.
+    # Note: On Raspberry Pi with systemd, the bot will be managed by the service.
+    # This manual start is primarily for testing or non-systemd environments.
     exec python bot.py || { print_error "Failed to start the bot."; exit 1; }
 else
     print_error "bot.py not found. Cannot start the bot."
