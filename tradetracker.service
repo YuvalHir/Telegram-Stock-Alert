@@ -1,13 +1,10 @@
 [Unit]
 Description=TradeTracker Telegram Bot
-# This ensures the update script runs first
 Wants=update-bot.service
 After=update-bot.service
 
 [Service]
-# Load all variables from the .env file
 EnvironmentFile=${PROJECT_DIR}/varribles.env
-# Use the $PROJECT_DIR variable for paths
 ExecStart=${PROJECT_DIR}/.venv/bin/python ${PROJECT_DIR}/bot.py
 WorkingDirectory=${PROJECT_DIR}
 User=yuval
