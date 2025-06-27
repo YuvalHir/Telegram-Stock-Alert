@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 import pandas as pd
-from plotly import graph_objects as go
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from bot_core import config
@@ -153,14 +154,41 @@ async def send_all_graphs(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id, f"No data for {ticker} to generate a graph.")
                 continue
 
-            fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-            fig.update_layout(title=f"{ticker} Graph", template='plotly_dark')
-            
+            # Use Matplotlib for plotting
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # Plot candlestick chart
+            # Matplotlib candlestick requires specific data format
+            # Need to convert DataFrame to the required format: (date, open, close, high, low)
+            ohlc = []
+            for index, row in df.iterrows():
+                ohlc.append([mdates.date2num(index), row['Open'], row['Close'], row['High'], row['Low']])
+
+            from mplfinance.original_flavor import candlestick_ohlc
+            candlestick_ohlc(ax, ohlc, width=0.6, colorup='g', colordown='r', alpha=0.8)
+
+            # Formatting
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+            fig.autofmt_xdate() # Auto-rotate date labels
+
+            ax.set_title(f"{ticker} Graph")
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Price")
+            plt.grid(True)
+
             # Simplified for now. Detailed trace logic will be added later.
 
-            img_bytes = await loop.run_in_executor(None, lambda: fig.to_image(format="png"))
+            # Save the plot to a BytesIO object
+            img_bytes = BytesIO()
+            plt.savefig(img_bytes, format='png')
+            img_bytes.seek(0) # Rewind the buffer
+
+            # Close the plot to free up memory
+            plt.close(fig)
+
             await context.bot.send_photo(chat_id, photo=img_bytes, caption=f"Graph for your {ticker} alert.")
-            
+
         except Exception as e:
             logger.error(f"Error generating graph for {ticker}: {e}")
             await context.bot.send_message(chat_id, f"Could not generate graph for {ticker}.")

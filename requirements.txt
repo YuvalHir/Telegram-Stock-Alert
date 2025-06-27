@@ -7,9 +7,12 @@ pytz
 google-api-python-client
 youtube-transcript-api
 google-generativeai
+google-genai
 twikit
 pandas-market-calendars
 python-dotenv
 requests
 beautifulsoup4
 python-telegram-bot[job-queue]
+matplotlib<3.10.3
+mplfinance

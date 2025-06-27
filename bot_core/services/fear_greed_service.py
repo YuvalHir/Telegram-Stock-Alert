@@ -24,7 +24,8 @@ def get_fear_greed_index_api():
         rating = data.get("fear_and_greed", {}).get("rating")
 
         if score is not None and rating is not None:
-            return rating.capitalize(), str(score) # Return category and score as strings
+            rounded_score = int(round(float(score))) # Round the score to the nearest integer
+            return rating.capitalize(), str(rounded_score) # Return category and rounded score as strings
         else:
             return "Error", "Could not find score or rating in API response."
 
