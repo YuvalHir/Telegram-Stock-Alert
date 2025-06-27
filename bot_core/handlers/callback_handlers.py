@@ -46,7 +46,7 @@ async def remove_alert_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ Failed to remove alert. Invalid alert ID.", reply_markup=None)
         return
 
-    user_id = query.effective_chat.id
+    user_id = query.from_user.id
     logger.info(f"User ID: {user_id}")
 
     db_manager = context.bot_data.get('db_manager')
