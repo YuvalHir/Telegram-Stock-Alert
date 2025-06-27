@@ -6,7 +6,7 @@ After=update-bot.service
 
 [Service]
 # Load all variables from the .env file
-EnvironmentFile=/home/yuval/tradetracker_bot/varribles.env
+EnvironmentFile=${PROJECT_DIR}/varribles.env
 # Use the $PROJECT_DIR variable for paths
 ExecStart=${PROJECT_DIR}/.venv/bin/python ${PROJECT_DIR}/bot.py
 WorkingDirectory=${PROJECT_DIR}
