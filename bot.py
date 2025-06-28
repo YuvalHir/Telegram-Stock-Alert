@@ -4,7 +4,11 @@ import zoneinfo
 from datetime import time, datetime, timedelta
 
 from dotenv import load_dotenv
+import warnings
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+# Ignore FutureWarning from yfinance
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Load environment variables from .env file
 load_dotenv(dotenv_path='varribles.env')
@@ -29,6 +33,7 @@ from bot_core.managers.summary_manager import SummaryManager
 from bot_core.alerts import AlertManager
 from bot_core.services.fear_greed_service import get_fear_greed_index_api
 from bot_core.utils.market_data_cache import market_cache
+from bot_core.utils.helpers import market_is_open, seconds_until_market_open # Import helper functions
 
 # --- Handler Imports ---
 from bot_core.handlers.command_handlers import (
@@ -59,6 +64,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+# Set httpx logger level to WARNING to suppress INFO messages
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # --- Global In-memory Store ---
@@ -176,16 +183,25 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(remove_alert_callback, pattern=r"^remove_\d+$"))
     application.add_handler(CallbackQueryHandler(alert_response_handler, pattern=r"^keep_\d+$"))
     application.add_handler(CallbackQueryHandler(send_all_graphs_callback, pattern="^send_all_graphs$"))
-    
+
     # New Summary Feature Handlers
     application.add_handler(CallbackQueryHandler(summary_menu_callback, pattern="^advanced$")) # Replaces 'advanced' menu
-    application.add_handler(CallbackQueryHandler(summary_button_handler, pattern=r"^sum_(latest_summary|custom_summary|ai_chat)$"))
+    application.add_handler(CallbackQueryHandler(summary_button_handler, pattern=r"^sum_(latest_summary|latest_news|custom_summary|ai_chat)$"))
     application.add_handler(CallbackQueryHandler(video_selection_callback, pattern=r"^(video_select:|manual_video)"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, summary_text_handler))
 
     # --- Job Queue Setup ---
     logger.info("Setting up scheduled jobs...")
-    application.job_queue.run_repeating(alert_manager.check_alerts, interval=60, first=10)
+
+    # Schedule alert checking based on market hours
+    if market_is_open():
+        logger.info("Market is open. Scheduling alert checks every minute.")
+        application.job_queue.run_repeating(alert_manager.check_alerts, interval=60)
+    else:
+        wait_time = seconds_until_market_open()
+        logger.info(f"Market is closed. Scheduling next alert check in {wait_time:.0f} seconds.")
+        application.job_queue.run_once(alert_manager.check_alerts, when=timedelta(seconds=wait_time))
+
 
     # Updated job schedule to use new manager methods
     application.job_queue.run_daily(distribute_twitter_recap, time=config.X_SUMMARY_PRE_MARKET_TIME)

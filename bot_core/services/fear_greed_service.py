@@ -9,7 +9,6 @@ def get_fear_greed_index_api():
     # Get the current date in the required format YYYY-MM-DD
     current_date = datetime.now().strftime('%Y-%m-%d')
     url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{current_date}"
-    print(f"Requesting URL: {url}") # Log the URL
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'

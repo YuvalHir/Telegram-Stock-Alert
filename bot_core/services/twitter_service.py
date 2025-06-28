@@ -99,5 +99,5 @@ class TwitterService:
             for tweet in all_tweets 
             if not stop_condition_check(tweet.created_at)
         ]
-
+        logger.info("Successfully fetched Tweets.")
         return final_tweets

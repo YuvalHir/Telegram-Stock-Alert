@@ -33,19 +33,14 @@ async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Fear & Greed Index Integration ---
     fear_greed_data = market_cache.get('fear_greed_index')
     if fear_greed_data is None:
-        logger.info("Fetching new Fear & Greed Index...")
         try:
             # get_fear_greed_index returns (category, value_str)
             category, value_str = get_fear_greed_index_api()
             fear_greed_data = f"Fear & Greed Index: {category} ({value_str})"
             market_cache.set('fear_greed_index', fear_greed_data)
-            logger.info(f"Fetched and cached: {fear_greed_data}")
         except Exception as e:
             logger.error(f"Failed to fetch Fear & Greed Index: {e}")
             fear_greed_data = "Fear & Greed Index: N/A (Error fetching)"
-    else:
-        logger.info(f"Using cached Fear & Greed Index: {fear_greed_data}")
-    # --- End Fear & Greed Index Integration ---
 
     keyboard = [
         [InlineKeyboardButton("➕ New Alert", callback_data="new_alert")],

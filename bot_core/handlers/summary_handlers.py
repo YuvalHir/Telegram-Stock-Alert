@@ -54,6 +54,7 @@ async def summary_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     keyboard = [
         [InlineKeyboardButton("📰 Latest Live Summary", callback_data='sum_latest_summary')],
+        [InlineKeyboardButton("📈 Latest Stock Market News", callback_data='sum_latest_news')], # New button
         [InlineKeyboardButton("📹 Custom Live Summary", callback_data='sum_custom_summary')],
         [InlineKeyboardButton("🤖 Ask AI about a Video", callback_data='sum_ai_chat')],
         [InlineKeyboardButton("🏠 Return to Main Menu", callback_data='main_menu')]
@@ -67,12 +68,26 @@ async def summary_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     choice = query.data
     
+    summary_manager = context.bot_data['summary_manager'] # Get manager here
+
     if choice == 'sum_latest_summary':
-        summary_manager = context.bot_data['summary_manager']
         await query.edit_message_text("⏳ Fetching the latest YouTube summary, please wait...")
         summary_text, video_details = summary_manager.get_youtube_summary()
         display_text = _prepare_youtube_summary_for_display(summary_text, video_details)
         await query.edit_message_text(text=display_text, parse_mode="HTML")
+
+    elif choice == 'sum_latest_news': # New handler case
+        await query.edit_message_text("⏳ Fetching the latest stock market news from cache, please wait...")
+        # Attempt to get post-market recap from cache first, then pre-market
+        news_recap = await summary_manager.get_daily_twitter_recap(before_market=False, only_from_cache=True)
+        if not news_recap:
+             news_recap = await summary_manager.get_daily_twitter_recap(before_market=True, only_from_cache=True)
+
+        if news_recap:
+            await query.edit_message_text(text=_prepare_text_for_display(news_recap), parse_mode="HTML")
+        else:
+            await query.edit_message_text(text="Latest stock market news not found in cache.")
+
 
     elif choice == 'sum_custom_summary':
         context.user_data[AWAITING_VIDEO_ID_FOR_SUMMARY] = True
@@ -83,7 +98,7 @@ async def summary_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         video_tuples = youtube_service.get_latest_live_video_tuples(limit=4)
         
         buttons = [
-            [InlineKeyboardButton(title, callback_data=f"video_select:{video_id}")] 
+            [InlineKeyboardButton(title, callback_data=f"video_select:{video_id}")]
             for video_id, title in video_tuples
         ]
         buttons.append([InlineKeyboardButton("Manual Input", callback_data="manual_video")])

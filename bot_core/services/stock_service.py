@@ -43,7 +43,7 @@ class StockDataService:
         if start_date == end_date:
             effective_end_date = end_date + timedelta(days=1)
         
-        df = yf.download(ticker, start=start_date, end=effective_end_date)
+        df = yf.download(ticker, start=start_date, end=effective_end_date, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
         tz = timezone('America/New_York')

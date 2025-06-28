@@ -99,8 +99,11 @@ class SummaryManager:
             self.cache_manager.save_transcript(video_id, transcript)
         return transcript
 
-    async def get_daily_twitter_recap(self, before_market: bool):
-        """Orchestrates getting the daily Twitter recap."""
+    async def get_daily_twitter_recap(self, before_market: bool, only_from_cache: bool = False):
+        """
+        Orchestrates getting the daily Twitter recap.
+        If only_from_cache is True, it will only return the cached summary if available.
+        """
         today_str = date.today().strftime("%Y%m%d")
         recap_type = "PRE" if before_market else "AFT"
         cache_key = f"{recap_type}{today_str}"
@@ -111,8 +114,14 @@ class SummaryManager:
             logger.info(f"Retrieved {recap_type}-market summary from cache.")
             return summary
 
+        # If only_from_cache is True and summary is not in cache, return None
+        if only_from_cache:
+            logger.info(f"Summary for {recap_type}-market not found in cache and only_from_cache is True.")
+            return None
+
+        # Proceed with fetching and generating if not only_from_cache
         if not market_is_open_today():
-            logger.info("Market is not open today, skipping Twitter recap.")
+            logger.info("Market is not open today, skipping Twitter recap generation.")
             return "The market is closed today, so there is no recap."
             
         # Ensure the twitter service is logged in before fetching
